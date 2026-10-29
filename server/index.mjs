@@ -16,6 +16,7 @@ const store = new Store(dataDir)
 await store.init()
 const saved = await readJson(path.join(dataDir, 'settings.json'), {})
 const profiles = new IpProfiles(store, await readJson(path.join(dataDir, 'profiles.json'), {}))
+await profiles.persistIds()
 const history = (await readLines(path.join(dataDir, 'history.jsonl'))).map(h => ({ ...h, room: h.room || 'lunch' }))
 const chats = await readLines(path.join(dataDir, 'chat.jsonl'))
 const rooms = Object.fromEntries(ROOM_IDS.map(key => {
@@ -39,7 +40,9 @@ const broadcast = (type, payload, except) => { for (const ws of clients.keys()) 
 const people = () => [...clients.values()].filter(p => p.joined).map(({ id, name, emoji, color, cursor, message, messageAt }) => ({ id, name, emoji, color, cursor, message, messageAt }))
 const settings = (overrides = {}) => ({ rooms: Object.fromEntries(ROOM_IDS.map(key => [key, { selectedIds: rooms[key].selectedIds, angle: rooms[key].angle, activeSpin: rooms[key].spin, ...overrides[key] }])) })
 // Lunch aliases let already-open clients reconnect during this update.
-const snapshot = () => ({ serverNow: Date.now(), restaurants, catalogVersion, rooms, selectedIds: rooms.lunch.selectedIds, angle: rooms.lunch.angle, spin: rooms.lunch.spin, lastResult: rooms.lunch.lastResult, history: history.slice(-500).reverse(), chats: chats.slice(-200), people: people() })
+const withActor = row => row && { ...row, actor: profiles.current(row.actor) }
+const roomSnapshots = () => Object.fromEntries(ROOM_IDS.map(key => [key, { ...rooms[key], spin: withActor(rooms[key].spin), lastResult: withActor(rooms[key].lastResult) }]))
+const snapshot = () => ({ serverNow: Date.now(), restaurants, catalogVersion, rooms: roomSnapshots(), selectedIds: rooms.lunch.selectedIds, angle: rooms.lunch.angle, spin: withActor(rooms.lunch.spin), lastResult: withActor(rooms.lunch.lastResult), history: history.slice(-500).reverse().map(withActor), chats: chats.slice(-200).map(c => profiles.current(c)), people: people() })
 const error = (ws, message, requestId) => send(ws, 'error', { message, requestId })
 const diskError = e => { console.error('파일 저장 실패:', e); broadcast('error', { message: '파일 저장에 실패했습니다. 디스크 공간과 폴더 권한을 확인하세요.' }) }
 function mutate(operation) {
@@ -57,7 +60,7 @@ async function finalizeSpin(key) {
     const angle = ((spin.endAngle % TAU) + TAU) % TAU
     await store.set('settings.json', settings({ [key]: { angle, activeSpin: null } }))
     state.angle = angle; state.spin = null; state.lastResult = history.find(r => r.id === spin.id)
-    broadcast('result', { room: key, result: state.lastResult, angle, serverNow: Date.now() })
+    broadcast('result', { room: key, result: withActor(state.lastResult), angle, serverNow: Date.now() })
   } catch (e) { diskError(e); spinTimers.set(key, setTimeout(() => mutate(() => finalizeSpin(key)), 3000)) }
 }
 for (const key of ROOM_IDS) if (rooms[key].spin) {
@@ -119,9 +122,9 @@ wss.on('connection', (ws, req) => {
         if (ws.readyState !== WebSocket.OPEN) return
         p.joined = true; clearTimeout(joinTimeout)
         if (m.type === 'join') { p.message = typeof identity.lastMessage === 'string' ? identity.lastMessage : ''; p.messageAt = identity.lastMessageAt || 0 }
-        for (const peer of clients.values()) if (peer.ip === p.ip && peer.joined) { peer.name = identity.name; peer.emoji = identity.emoji }
+        for (const peer of clients.values()) if (peer.ip === p.ip && peer.joined) { peer.name = identity.name; peer.emoji = identity.emoji; if (identity.id) peer.profileId = identity.id }
         for (const [peerSocket, peer] of clients) if (peer.ip === p.ip && peer.joined) send(peerSocket, 'welcome', { self: { id: peer.id, name: peer.name, emoji: peer.emoji }, ...snapshot() })
-        broadcast('people', { people: people() }); return
+        broadcast('people', { people: people() }); if (identity.id) broadcast('rename', { profileId: identity.id, name: identity.name, emoji: identity.emoji }); return
       }
       if (!p.joined) return
       if (m.type === 'sync') return send(ws, 'state', snapshot())
@@ -139,7 +142,7 @@ wss.on('connection', (ws, req) => {
         const id = typeof m.requestId === 'string' ? m.requestId.slice(0,80) : ''
         if (!id || requests.has('chat:' + id)) return
         p.lastChat = now; requests.set('chat:' + id, now)
-        const row = { id: randomUUID(), text, at: now, personId: p.id, name: p.name, emoji: p.emoji, color: p.color }
+        const row = { id: randomUUID(), text, at: now, personId: p.id, profileId: p.profileId, name: p.name, emoji: p.emoji, color: p.color }
         try {
           await store.append('chat.jsonl', row); chats.push(row)
           try { await profiles.rememberMessage(p.ip, text, now) } catch(e) { diskError(e) }
@@ -173,7 +176,7 @@ wss.on('connection', (ws, req) => {
             rooms[key].angle = 0
           }
           try { await store.set('settings.json', settings()) } catch(e) { diskError(e) }
-          broadcast('catalog', { restaurants, catalogVersion, rooms, requestId: m.requestId })
+          broadcast('catalog', { restaurants, catalogVersion, rooms: roomSnapshots(), requestId: m.requestId })
         })
       }
       const key = m.room ?? 'lunch'

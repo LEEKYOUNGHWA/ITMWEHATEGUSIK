@@ -72,6 +72,11 @@ function connect(){
       if(m.chat.personId===selfId.value)draft.value=''
       await nextTick();chatBox.value?.scrollTo({top:chatBox.value.scrollHeight,behavior:'smooth'})
     }
+    if(m.type==='rename'){
+      const rename=row=>{if(row?.profileId===m.profileId){row.name=m.name;row.emoji=m.emoji}}
+      state.chats.forEach(rename);state.history.forEach(h=>rename(h.actor))
+      for(const room of Object.values(state.rooms)){rename(room.lastResult?.actor);rename(room.spin?.actor)}
+    }
     if(m.type==='clock')serverOffset.value=m.serverNow-(m.sentAt+Date.now())/2
     if(m.type==='error'){notify(m.message);if(saving.value){saving.value=false;catalogRequestId=null}}
   }

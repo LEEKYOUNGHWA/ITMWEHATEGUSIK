@@ -106,6 +106,25 @@ test('IP 프로필 저장 실패 후 다음 저장을 처리할 수 있다',()=>
   assert.equal(profiles.entries['10.0.0.1'],undefined)
   assert.equal((await profiles.resolve('10.0.0.1',{name:'저장성공'},fallback)).name,'저장성공')
 }))
+test('이름을 바꾸면 이전 채팅과 선정 이력도 바뀐 이름으로 보인다',()=>temporary(async dir=>{
+  // profiles.json from before profile ids existed must still load and get an id.
+  await writeFile(path.join(dir,'profiles.json'),JSON.stringify({'127.0.0.1':{name:'예전프로필',emoji:'🧙'}}))
+  let app=await start(dir),clients=[]
+  try{
+    const a=await client(app.port,'무시됨');clients.push(a);assert.equal(a.welcome.self.name,'예전프로필')
+    a.send('chat',{text:'김치찌개?',requestId:'rename-chat'});await a.wait('chat')
+    a.send('spin',{requestId:'rename-spin'});await a.wait('result')
+    const b=await client(app.port,'옆자리',{});clients.push(b)
+    a.send('profile',{name:'새이름',emoji:'🥷'})
+    const rename=await b.wait('rename',m=>m.name==='새이름');assert.equal(rename.emoji,'🥷')
+    const state=await (await fetch(`http://127.0.0.1:${app.port}/api/state`)).json()
+    assert.equal(state.chats[0].name,'새이름');assert.equal(state.chats[0].emoji,'🥷')
+    assert.equal(state.history[0].actor.name,'새이름');assert.equal(state.lastResult.actor.name,'새이름')
+    for(const p of clients)p.ws.close();await app.stop();app=null
+    app=await start(dir);const restored=await client(app.port,'재시작');clients=[restored]
+    assert.equal(restored.welcome.chats[0].name,'새이름');assert.equal(restored.welcome.history[0].actor.name,'새이름')
+  }finally{for(const p of clients)p.ws.close();if(app)await app.stop()}
+}))
 test('같은 IP의 재접속·다른 탭·서버 재시작에서 이름/이모지가 복원된다',()=>temporary(async dir=>{
   let app=await start(dir),clients=[]
   try{
@@ -153,8 +172,12 @@ test('커피·점심은 후보와 회전을 분리하고 채팅·이력 및 JSON
     assert.notEqual(coffeeResult.result.id,lunchResult.result.id)
     const commonHistory=await readLines(path.join(dir,'history.jsonl'));assert.equal(commonHistory.length,2);assert.deepEqual(new Set(commonHistory.map(h=>h.room)),new Set(['coffee','lunch']))
     a.send('chat',{text:'방은 달라도 채팅은 같이!',requestId:'common-chat'});assert.equal((await b.wait('chat')).chat.text,'방은 달라도 채팅은 같이!')
+    a.send('profile',{name:'두방새이름',emoji:'🥷'});await b.wait('rename',m=>m.name==='두방새이름')
+    const renamedState=await (await fetch(`http://127.0.0.1:${app.port}/api/state`)).json()
+    assert.equal(renamedState.rooms.coffee.lastResult.actor.name,'두방새이름');assert.equal(renamedState.rooms.lunch.lastResult.actor.name,'두방새이름')
+    assert.ok(renamedState.history.every(h=>h.actor.name==='두방새이름'));assert.equal(renamedState.chats[0].name,'두방새이름')
     a.send('catalog-save',{action:'upsert',version:2,requestId:'edit-coffee',restaurant:{...coffeeA,name:'수정한카페'}})
-    await b.wait('catalog',m=>m.requestId==='edit-coffee'&&m.restaurants.some(r=>r.id===coffeeA.id&&r.name==='수정한카페'))
+    const edited=await b.wait('catalog',m=>m.requestId==='edit-coffee'&&m.restaurants.some(r=>r.id===coffeeA.id&&r.name==='수정한카페'));assert.equal(edited.rooms.coffee.lastResult.actor.name,'두방새이름')
     a.send('catalog-save',{action:'delete',version:3,requestId:'delete-lunch',id:lunchResult.result.restaurantId})
     await b.wait('catalog',m=>m.requestId==='delete-lunch'&&!m.restaurants.some(r=>r.id===lunchResult.result.restaurantId))
     const persisted=JSON.parse(await readFile(path.join(dir,'restaurants.json'),'utf8'))
