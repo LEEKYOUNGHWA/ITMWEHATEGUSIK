@@ -77,7 +77,7 @@ server.on('request', async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost')
     res.setHeader('X-Content-Type-Options', 'nosniff')
-    if (url.pathname === '/api/health') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ ok: true, online: people().length, port: server.address()?.port })) }
+    if (url.pathname === '/api/health') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ ok: true, online: people().length, port: server.address()?.port, revision: process.env.APP_REVISION || null })) }
     if (url.pathname === '/api/state') { res.setHeader('Cache-Control', 'no-store'); res.setHeader('Content-Type', 'application/json; charset=utf-8'); return res.end(JSON.stringify(snapshot())) }
     if (/^\/(?:data|config|server|tests|scripts|node_modules\/\.cache)(?:\/|$)/.test(url.pathname) || url.pathname.includes('..') || /(?:^|\/)\.(?!vite)/.test(url.pathname) || ['/package.json','/pnpm-lock.yaml','/package-lock.json','/README.md','/vite.config.js'].includes(url.pathname)) { res.statusCode = 404; return res.end('Not found') }
     const servePage = async () => {
@@ -233,3 +233,21 @@ async function shutdown() {
 }
 process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown)
 
+
+// Only the local deployment runner owns this private stdin channel.
+if (process.env.AUTO_DEPLOY_MANAGED === '1') {
+  let input = ''
+  process.stdin.setEncoding('utf8')
+  process.stdin.on('data', chunk => {
+    input += chunk
+    let newline
+    while ((newline = input.indexOf('\n')) !== -1) {
+      const command = input.slice(0, newline).trim()
+      input = input.slice(newline + 1)
+      if (command === 'shutdown') void shutdown()
+    }
+    if (input.length > 1024) input = ''
+  })
+  process.stdin.on('end', () => void shutdown())
+  process.stdin.resume()
+}

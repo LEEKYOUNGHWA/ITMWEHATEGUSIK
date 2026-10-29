@@ -1,21 +1,26 @@
 {
-    "name":  "gangseo-lunch-wheel",
-    "version":  "1.0.0",
-    "private":  true,
-    "type":  "module",
-    "scripts":  {
-                    "dev":  "node server/index.mjs --dev",
-                    "start":  "node server/index.mjs",
-                    "build":  "vite build --configLoader native",
-                    "test":  "node --test tests/*.test.mjs"
-                },
-    "dependencies":  {
-                         "vue":  "^3.5.0",
-                         "leaflet":  "^1.9.4",
-                         "ws":  "^8.18.0"
-                     },
-    "devDependencies":  {
-                            "vite":  "^7.0.0",
-                            "@vitejs/plugin-vue":  "^6.0.0"
-                        }
+  "name": "gangseo-lunch-wheel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server/index.mjs --dev",
+    "start": "node server/index.mjs",
+    "build": "vite build --configLoader native",
+    "test": "node --test tests/*.test.mjs",
+    "auto:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/auto-deploy.ps1 -Action Start",
+    "auto:run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/auto-deploy.ps1 -Action Run",
+    "auto:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/auto-deploy.ps1 -Action Stop",
+    "auto:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/auto-deploy.ps1 -Action Status",
+    "auto:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/auto-deploy.ps1 -Action Check"
+  },
+  "dependencies": {
+    "vue": "^3.5.0",
+    "leaflet": "^1.9.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "vite": "^7.0.0",
+    "@vitejs/plugin-vue": "^6.0.0"
+  }
 }
