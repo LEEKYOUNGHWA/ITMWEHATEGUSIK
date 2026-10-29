@@ -1,0 +1,193 @@
+import http from 'node:http'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { networkInterfaces } from 'node:os'
+import { randomUUID, randomInt } from 'node:crypto'
+import { WebSocketServer, WebSocket } from 'ws'
+import { Store, readJson, readLines, loadRestaurants, createSpin, EMOJIS, TAU, IpProfiles, normalizeIp } from './model.mjs'
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, 'data')
+const restaurants = await loadRestaurants(process.env.RESTAURANTS_FILE || path.join(root, 'config/restaurants.json'))
+const store = new Store(dataDir)
+await store.init()
+const saved = await readJson(path.join(dataDir, 'settings.json'), {})
+const profiles = new IpProfiles(store, await readJson(path.join(dataDir, 'profiles.json'), {}))
+const history = await readLines(path.join(dataDir, 'history.jsonl'))
+const chats = await readLines(path.join(dataDir, 'chat.jsonl'))
+let selectedIds = Array.isArray(saved.selectedIds) ? restaurants.filter(r => saved.selectedIds.includes(r.id)).map(r => r.id) : restaurants.map(r => r.id)
+let angle = Number.isFinite(saved.angle) ? saved.angle : 0
+let activeSpin = saved.activeSpin || null
+let lastResult = history.at(-1) || null
+let settingsBusy = false
+const clients = new Map()
+const requests = new Map()
+let pendingSpinTimer
+let shuttingDown = false
+const port = Number(process.env.PORT || 3000)
+if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('PORT는 0~65535 정수여야 합니다.')
+const server = http.createServer()
+const wss = new WebSocketServer({ noServer: true, maxPayload: 8192 })
+const send = (ws, type, payload) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, ...payload })) }
+const broadcast = (type, payload, except) => { for (const ws of clients.keys()) if (ws !== except) send(ws, type, payload) }
+const people = () => [...clients.values()].filter(p => p.joined).map(({ id, name, emoji, color, cursor, message, messageAt }) => ({ id, name, emoji, color, cursor, message, messageAt }))
+const settings = () => ({ selectedIds, angle, activeSpin })
+const snapshot = () => ({ serverNow: Date.now(), restaurants, selectedIds, angle, spin: activeSpin, lastResult, history: history.slice(-500).reverse(), chats: chats.slice(-200), people: people() })
+const error = (ws, message) => send(ws, 'error', { message })
+const diskError = e => { console.error('파일 저장 실패:', e); broadcast('error', { message: '파일 저장에 실패했습니다. 디스크 공간과 data 폴더 권한을 확인하세요.' }) }
+async function settleSpin() {
+  if (!activeSpin) return
+  const spin = activeSpin
+  const restaurant = restaurants.find(r => r.id === spin.winnerId)
+  const result = { id: spin.id, restaurantId: spin.winnerId, restaurant: restaurant ? { ...restaurant } : { id: spin.winnerId, name: '삭제된 식당' }, at: spin.startedAt + spin.duration, actor: spin.actor }
+  try {
+    if (!history.some(r => r.id === spin.id)) { await store.append('history.jsonl', result); history.push(result) }
+    lastResult = history.find(r => r.id === spin.id)
+    angle = ((spin.endAngle % TAU) + TAU) % TAU
+    await store.set('settings.json', { selectedIds, angle, activeSpin: null })
+    activeSpin = null
+    broadcast('result', { result: lastResult, angle, serverNow: Date.now() })
+  } catch (e) { diskError(e); pendingSpinTimer = setTimeout(settleSpin, 3000) }
+}
+if (activeSpin) {
+  if (!Array.isArray(activeSpin.ids) || !Number.isFinite(activeSpin.endAngle)) throw new Error('settings.json의 진행 중 회전 정보가 잘못되었습니다.')
+  await settleSpin()
+}
+const dev = process.argv.includes('--dev')
+let vite
+if (dev) {
+  const { createServer } = await import('vite')
+  vite = await createServer({ root, configLoader: 'native', configFile: path.join(root, 'vite.config.js'), server: { middlewareMode: true, hmr: { server } }, appType: 'custom' })
+}
+server.on('request', async (req, res) => {
+  try {
+    const url = new URL(req.url, 'http://localhost')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    if (url.pathname === '/api/health') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ ok: true, online: people().length, port: server.address()?.port })) }
+    if (url.pathname === '/api/state') { res.setHeader('Cache-Control', 'no-store'); res.setHeader('Content-Type', 'application/json; charset=utf-8'); return res.end(JSON.stringify(snapshot())) }
+    if (/^\/(?:data|config|server|tests|scripts|node_modules\/\.cache)(?:\/|$)/.test(url.pathname) || url.pathname.includes('..') || /(?:^|\/)\.(?!vite)/.test(url.pathname) || ['/package.json','/pnpm-lock.yaml','/package-lock.json','/README.md','/vite.config.js'].includes(url.pathname)) { res.statusCode = 404; return res.end('Not found') }
+    const servePage = async () => {
+      if (dev) { const html = await vite.transformIndexHtml(req.url, await readFile(path.join(root, 'index.html'), 'utf8')); res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(html) }
+      else {
+        let file = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname).slice(1)
+        const absolute = path.resolve(root, 'dist', file)
+        if (!absolute.startsWith(path.join(root, 'dist') + path.sep)) { res.statusCode = 404; return res.end() }
+        try { const contents = await readFile(absolute); const ext = path.extname(file); res.setHeader('Content-Type', ({ '.html':'text/html; charset=utf-8', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.svg':'image/svg+xml', '.woff2':'font/woff2' })[ext] || 'application/octet-stream'); res.end(contents) } catch { res.statusCode = 404; res.end('npm run build 후 npm start를 실행하세요.') }
+      }
+    }
+    if (dev) vite.middlewares(req, res, err => { if (err) { console.error(err); res.statusCode = 500; return res.end('화면 로딩 오류') }; if (url.pathname !== '/' && url.pathname !== '/index.html') { res.statusCode = 404; return res.end('Not found') }; servePage().catch(e => { vite.ssrFixStacktrace(e); console.error(e); res.statusCode = 500; res.end('화면 로딩 오류') }) })
+    else await servePage()
+  } catch (e) { console.error(e); res.statusCode = 500; res.end('서버 오류') }
+})
+server.on('upgrade', (req, socket, head) => {
+  if (req.url?.split('?')[0] !== '/ws') return // Vite handles its own HMR socket.
+  if (req.headers.origin) { try { if (new URL(req.headers.origin).host !== req.headers.host) return socket.destroy() } catch { return socket.destroy() } }
+  wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req))
+})
+wss.on('connection', (ws, req) => {
+  const p = { ip: normalizeIp(req.socket.remoteAddress), id: randomUUID(), name: `점심친구 ${randomInt(10, 100)}`, emoji: EMOJIS[randomInt(EMOJIS.length)], color: ['#e8553d','#3fa796','#4f86c6','#9a6ad1'][clients.size % 4], cursor: null, joined: false, message: '', messageAt: 0, lastCursor: 0, lastChat: 0, budget: 0, budgetAt: Date.now(), alive: true }
+  clients.set(ws, p)
+  const joinTimeout = setTimeout(() => { if (!p.joined) ws.close(1008, 'join timeout') }, 10000)
+  ws.on('pong', () => { p.alive = true })
+  ws.on('error', () => {})
+  ws.on('close', () => { clearTimeout(joinTimeout); clients.delete(ws); broadcast('people', { people: people() }) })
+  ws.on('message', async raw => {
+    let m
+    try { m = JSON.parse(raw.toString()) } catch { return error(ws, '잘못된 요청입니다.') }
+    if (!m || typeof m !== 'object' || Array.isArray(m)) return error(ws, '잘못된 요청입니다.')
+    const now = Date.now()
+    if (now - p.budgetAt > 1000) { p.budgetAt = now; p.budget = 0 }
+    if (++p.budget > 60) return
+    if (m.type === 'join' || m.type === 'profile') {
+      if (m.type === 'profile' && !p.joined) return
+      let identity
+      try {
+        // Socket address is authoritative; forwarding headers are intentionally unused.
+        identity = await profiles.resolve(p.ip, m, p, m.type === 'profile')
+      } catch (e) {
+        diskError(e)
+        identity = { name: p.name, emoji: p.emoji }
+      }
+      if (ws.readyState !== WebSocket.OPEN) return
+      p.joined = true; clearTimeout(joinTimeout)
+      for (const [peerSocket, peer] of clients) {
+        if (peer.ip !== p.ip || !peer.joined) continue
+        peer.name = identity.name; peer.emoji = identity.emoji
+      }
+      for (const [peerSocket, peer] of clients) {
+        if (peer.ip === p.ip && peer.joined) send(peerSocket, 'welcome', { self: { id: peer.id, name: peer.name, emoji: peer.emoji }, ...snapshot() })
+      }
+      broadcast('people', { people: people() })
+      return
+    }
+    if (!p.joined) return
+    if (m.type === 'sync') return send(ws, 'state', snapshot())
+    if (m.type === 'ping') return send(ws, 'clock', { serverNow: now, sentAt: m.sentAt })
+    if (m.type === 'cursor') {
+      if (now - p.lastCursor < 40) return
+      p.lastCursor = now
+      p.cursor = m.visible && Number.isFinite(m.x) && Number.isFinite(m.y) ? { x: Math.max(0, Math.min(1, m.x)), y: Math.max(0, Math.min(1, m.y)) } : null
+      broadcast('cursor', { id: p.id, cursor: p.cursor }, ws); return
+    }
+    if (m.type === 'selection') {
+      if (activeSpin || settingsBusy) return error(ws, '돌림판이 돌고 있거나 다른 변경을 저장 중입니다.')
+      if (!restaurants.some(r => r.id === m.id) || typeof m.enabled !== 'boolean') return error(ws, '식당 선택 값이 잘못되었습니다.')
+      settingsBusy = true
+      const next = restaurants.filter(r => r.id === m.id ? m.enabled : selectedIds.includes(r.id)).map(r => r.id)
+      try { await store.set('settings.json', { ...settings(), selectedIds: next, angle: 0 }); selectedIds = next; angle = 0; broadcast('selection', { selectedIds, angle }) } catch (e) { diskError(e) } finally { settingsBusy = false }
+      return
+    }
+    if (m.type === 'chat') {
+      const text = typeof m.text === 'string' ? m.text.trim().slice(0, 200) : ''
+      if (!text) return
+      if (now - p.lastChat < 600) return error(ws, '메시지는 잠깐 간격을 두고 보내주세요.')
+      p.lastChat = now
+      const key = typeof m.requestId === 'string' ? m.requestId.slice(0, 80) : ''
+      if (!key) return
+      if (requests.has('chat:' + key)) return
+      requests.set('chat:' + key, now)
+      const row = { id: randomUUID(), text, at: now, personId: p.id, name: p.name, emoji: p.emoji, color: p.color }
+      try { await store.append('chat.jsonl', row); chats.push(row); p.message = text; p.messageAt = now; broadcast('chat', { chat: row }) } catch (e) { requests.delete('chat:' + key); diskError(e) }
+      return
+    }
+    if (m.type === 'spin') {
+      const key = typeof m.requestId === 'string' ? m.requestId.slice(0, 80) : ''
+      if (!key || requests.has('spin:' + key)) return
+      if (activeSpin || settingsBusy) return error(ws, '이미 돌리고 있어요. 결과를 함께 기다려주세요!')
+      if (selectedIds.length < 2) return error(ws, '식당을 2곳 이상 선택해 주세요.')
+      activeSpin = createSpin(selectedIds, angle, p, Number(process.env.SPIN_DURATION) || 4200)
+      requests.set('spin:' + key, now)
+      try {
+        await store.set('settings.json', settings())
+        activeSpin.startedAt = Date.now() + 180
+        await store.set('settings.json', settings())
+        broadcast('spin', { spin: activeSpin, serverNow: Date.now() })
+        pendingSpinTimer = setTimeout(settleSpin, Math.max(0, activeSpin.startedAt + activeSpin.duration - Date.now()))
+      } catch (e) { activeSpin = null; requests.delete('spin:' + key); diskError(e); broadcast('state', snapshot()) }
+    }
+  })
+})
+const heartbeat = setInterval(() => {
+  for (const [ws, p] of clients) { if (!p.alive) { ws.terminate(); continue } p.alive = false; ws.ping() }
+  for (const [key, at] of requests) if (Date.now() - at > 3600000) requests.delete(key)
+}, 15000)
+server.on('error', e => { console.error(e.code === 'EADDRINUSE' ? `${port}번 포트를 다른 프로그램이 사용 중입니다. PORT를 변경하세요.` : e); process.exit(1) })
+await new Promise(resolve => server.listen(port, '0.0.0.0', resolve))
+console.log(`\n🍚 GS강서타워 점심 돌림판\n  내 PC: http://localhost:${server.address().port}`)
+for (const net of Object.values(networkInterfaces()).flat()) if (net?.family === 'IPv4' && !net.internal) console.log(`  사내 접속: http://${net.address}:${server.address().port}`)
+console.log(`  저장 위치: ${dataDir}\n  종료: Ctrl+C\n`)
+async function shutdown() {
+  if (shuttingDown) return
+  shuttingDown = true; clearInterval(heartbeat); clearTimeout(pendingSpinTimer)
+  for (const ws of clients.keys()) ws.close(1001, 'server shutdown')
+  await profiles.queue
+  await store.queue
+  if (vite) await vite.close()
+  server.close(() => process.exit(0))
+  setTimeout(() => process.exit(0), 2000).unref()
+}
+process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown)
+
+
+
