@@ -1,58 +1,68 @@
-import http from 'node:http'
+﻿import http from 'node:http'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { networkInterfaces } from 'node:os'
 import { randomUUID, randomInt } from 'node:crypto'
 import { WebSocketServer, WebSocket } from 'ws'
-import { Store, readJson, readLines, loadRestaurants, createSpin, EMOJIS, TAU, IpProfiles, normalizeIp } from './model.mjs'
+import { Store, readJson, readLines, loadRestaurants, validateRestaurants, createSpin, EMOJIS, TAU, IpProfiles, normalizeIp, ROOM_IDS } from './model.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, 'data')
-const restaurants = await loadRestaurants(process.env.RESTAURANTS_FILE || path.join(root, 'config/restaurants.json'))
+const catalogFile = path.resolve(process.env.RESTAURANTS_FILE || path.join(root, 'config/restaurants.json'))
+let restaurants = await loadRestaurants(catalogFile)
+const catalogStore = new Store(path.dirname(catalogFile))
 const store = new Store(dataDir)
 await store.init()
 const saved = await readJson(path.join(dataDir, 'settings.json'), {})
 const profiles = new IpProfiles(store, await readJson(path.join(dataDir, 'profiles.json'), {}))
-const history = await readLines(path.join(dataDir, 'history.jsonl'))
+const history = (await readLines(path.join(dataDir, 'history.jsonl'))).map(h => ({ ...h, room: h.room || 'lunch' }))
 const chats = await readLines(path.join(dataDir, 'chat.jsonl'))
-let selectedIds = Array.isArray(saved.selectedIds) ? restaurants.filter(r => saved.selectedIds.includes(r.id)).map(r => r.id) : restaurants.map(r => r.id)
-let angle = Number.isFinite(saved.angle) ? saved.angle : 0
-let activeSpin = saved.activeSpin || null
-let lastResult = history.at(-1) || null
-let settingsBusy = false
-const clients = new Map()
-const requests = new Map()
-let pendingSpinTimer
-let shuttingDown = false
+const rooms = Object.fromEntries(ROOM_IDS.map(key => {
+  const previous = saved.rooms?.[key] || (key === 'lunch' ? saved : {})
+  const candidates = restaurants.filter(r => r.room === key)
+  return [key, {
+    selectedIds: Array.isArray(previous.selectedIds) ? candidates.filter(r => previous.selectedIds.includes(r.id)).map(r => r.id) : candidates.map(r => r.id),
+    angle: Number.isFinite(previous.angle) ? previous.angle : 0,
+    spin: previous.activeSpin || null,
+    lastResult: history.findLast(h => h.room === key) || null
+  }]
+}))
+let catalogVersion = 0, mutationQueue = Promise.resolve(), shuttingDown = false
+const clients = new Map(), requests = new Map(), spinTimers = new Map()
 const port = Number(process.env.PORT || 3000)
 if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('PORT는 0~65535 정수여야 합니다.')
 const server = http.createServer()
-const wss = new WebSocketServer({ noServer: true, maxPayload: 8192 })
+const wss = new WebSocketServer({ noServer: true, maxPayload: 16384 })
 const send = (ws, type, payload) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, ...payload })) }
 const broadcast = (type, payload, except) => { for (const ws of clients.keys()) if (ws !== except) send(ws, type, payload) }
 const people = () => [...clients.values()].filter(p => p.joined).map(({ id, name, emoji, color, cursor, message, messageAt }) => ({ id, name, emoji, color, cursor, message, messageAt }))
-const settings = () => ({ selectedIds, angle, activeSpin })
-const snapshot = () => ({ serverNow: Date.now(), restaurants, selectedIds, angle, spin: activeSpin, lastResult, history: history.slice(-500).reverse(), chats: chats.slice(-200), people: people() })
-const error = (ws, message) => send(ws, 'error', { message })
-const diskError = e => { console.error('파일 저장 실패:', e); broadcast('error', { message: '파일 저장에 실패했습니다. 디스크 공간과 data 폴더 권한을 확인하세요.' }) }
-async function settleSpin() {
-  if (!activeSpin) return
-  const spin = activeSpin
-  const restaurant = restaurants.find(r => r.id === spin.winnerId)
-  const result = { id: spin.id, restaurantId: spin.winnerId, restaurant: restaurant ? { ...restaurant } : { id: spin.winnerId, name: '삭제된 식당' }, at: spin.startedAt + spin.duration, actor: spin.actor }
+const settings = (overrides = {}) => ({ rooms: Object.fromEntries(ROOM_IDS.map(key => [key, { selectedIds: rooms[key].selectedIds, angle: rooms[key].angle, activeSpin: rooms[key].spin, ...overrides[key] }])) })
+// Lunch aliases let already-open clients reconnect during this update.
+const snapshot = () => ({ serverNow: Date.now(), restaurants, catalogVersion, rooms, selectedIds: rooms.lunch.selectedIds, angle: rooms.lunch.angle, spin: rooms.lunch.spin, lastResult: rooms.lunch.lastResult, history: history.slice(-500).reverse(), chats: chats.slice(-200), people: people() })
+const error = (ws, message, requestId) => send(ws, 'error', { message, requestId })
+const diskError = e => { console.error('파일 저장 실패:', e); broadcast('error', { message: '파일 저장에 실패했습니다. 디스크 공간과 폴더 권한을 확인하세요.' }) }
+function mutate(operation) {
+  const result = mutationQueue.then(operation)
+  mutationQueue = result.catch(() => {})
+  return result
+}
+async function finalizeSpin(key) {
+  const state = rooms[key], spin = state.spin
+  if (!spin) return
+  const restaurant = spin.restaurant || restaurants.find(r => r.id === spin.winnerId) || { id: spin.winnerId, name: '삭제된 후보' }
+  const result = { id: spin.id, room: key, restaurantId: spin.winnerId, restaurant: { ...restaurant }, at: spin.startedAt + spin.duration, actor: spin.actor }
   try {
     if (!history.some(r => r.id === spin.id)) { await store.append('history.jsonl', result); history.push(result) }
-    lastResult = history.find(r => r.id === spin.id)
-    angle = ((spin.endAngle % TAU) + TAU) % TAU
-    await store.set('settings.json', { selectedIds, angle, activeSpin: null })
-    activeSpin = null
-    broadcast('result', { result: lastResult, angle, serverNow: Date.now() })
-  } catch (e) { diskError(e); pendingSpinTimer = setTimeout(settleSpin, 3000) }
+    const angle = ((spin.endAngle % TAU) + TAU) % TAU
+    await store.set('settings.json', settings({ [key]: { angle, activeSpin: null } }))
+    state.angle = angle; state.spin = null; state.lastResult = history.find(r => r.id === spin.id)
+    broadcast('result', { room: key, result: state.lastResult, angle, serverNow: Date.now() })
+  } catch (e) { diskError(e); spinTimers.set(key, setTimeout(() => mutate(() => finalizeSpin(key)), 3000)) }
 }
-if (activeSpin) {
-  if (!Array.isArray(activeSpin.ids) || !Number.isFinite(activeSpin.endAngle)) throw new Error('settings.json의 진행 중 회전 정보가 잘못되었습니다.')
-  await settleSpin()
+for (const key of ROOM_IDS) if (rooms[key].spin) {
+  if (!Array.isArray(rooms[key].spin.ids) || !Number.isFinite(rooms[key].spin.endAngle)) throw new Error('settings.json의 진행 중 회전 정보가 잘못되었습니다.')
+  await finalizeSpin(key)
 }
 const dev = process.argv.includes('--dev')
 let vite
@@ -85,87 +95,118 @@ server.on('upgrade', (req, socket, head) => {
   if (req.headers.origin) { try { if (new URL(req.headers.origin).host !== req.headers.host) return socket.destroy() } catch { return socket.destroy() } }
   wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req))
 })
+
 wss.on('connection', (ws, req) => {
-  const p = { ip: normalizeIp(req.socket.remoteAddress), id: randomUUID(), name: `점심친구 ${randomInt(10, 100)}`, emoji: EMOJIS[randomInt(EMOJIS.length)], color: ['#e8553d','#3fa796','#4f86c6','#9a6ad1'][clients.size % 4], cursor: null, joined: false, message: '', messageAt: 0, lastCursor: 0, lastChat: 0, budget: 0, budgetAt: Date.now(), alive: true }
+  const p = { ip: normalizeIp(req.socket.remoteAddress), id: randomUUID(), name: `친구 ${randomInt(10, 100)}`, emoji: EMOJIS[randomInt(EMOJIS.length)], color: ['#e8553d','#3fa796','#4f86c6','#9a6ad1'][clients.size % 4], cursor: null, joined: false, message: '', messageAt: 0, lastCursor: 0, lastChat: 0, budget: 0, budgetAt: Date.now(), alive: true }
   clients.set(ws, p)
   const joinTimeout = setTimeout(() => { if (!p.joined) ws.close(1008, 'join timeout') }, 10000)
   ws.on('pong', () => { p.alive = true })
   ws.on('error', () => {})
   ws.on('close', () => { clearTimeout(joinTimeout); clients.delete(ws); broadcast('people', { people: people() }) })
   ws.on('message', async raw => {
-    let m
-    try { m = JSON.parse(raw.toString()) } catch { return error(ws, '잘못된 요청입니다.') }
-    if (!m || typeof m !== 'object' || Array.isArray(m)) return error(ws, '잘못된 요청입니다.')
-    const now = Date.now()
-    if (now - p.budgetAt > 1000) { p.budgetAt = now; p.budget = 0 }
-    if (++p.budget > 60) return
-    if (m.type === 'join' || m.type === 'profile') {
-      if (m.type === 'profile' && !p.joined) return
-      let identity
-      try {
-        // Socket address is authoritative; forwarding headers are intentionally unused.
-        identity = await profiles.resolve(p.ip, m, p, m.type === 'profile')
-      } catch (e) {
-        diskError(e)
-        identity = { name: p.name, emoji: p.emoji }
+    try {
+      let m
+      try { m = JSON.parse(raw.toString()) } catch { return error(ws, '잘못된 요청입니다.') }
+      if (!m || typeof m !== 'object' || Array.isArray(m)) return error(ws, '잘못된 요청입니다.')
+      const now = Date.now()
+      if (now - p.budgetAt > 1000) { p.budgetAt = now; p.budget = 0 }
+      if (++p.budget > 60) return
+      if (m.type === 'join' || m.type === 'profile') {
+        if (m.type === 'profile' && !p.joined) return
+        let identity
+        try { identity = await profiles.resolve(p.ip, m, p, m.type === 'profile') }
+        catch (e) { diskError(e); identity = { name: p.name, emoji: p.emoji } }
+        if (ws.readyState !== WebSocket.OPEN) return
+        p.joined = true; clearTimeout(joinTimeout)
+        if (m.type === 'join') { p.message = typeof identity.lastMessage === 'string' ? identity.lastMessage : ''; p.messageAt = identity.lastMessageAt || 0 }
+        for (const peer of clients.values()) if (peer.ip === p.ip && peer.joined) { peer.name = identity.name; peer.emoji = identity.emoji }
+        for (const [peerSocket, peer] of clients) if (peer.ip === p.ip && peer.joined) send(peerSocket, 'welcome', { self: { id: peer.id, name: peer.name, emoji: peer.emoji }, ...snapshot() })
+        broadcast('people', { people: people() }); return
       }
-      if (ws.readyState !== WebSocket.OPEN) return
-      p.joined = true; clearTimeout(joinTimeout)
-      for (const [peerSocket, peer] of clients) {
-        if (peer.ip !== p.ip || !peer.joined) continue
-        peer.name = identity.name; peer.emoji = identity.emoji
+      if (!p.joined) return
+      if (m.type === 'sync') return send(ws, 'state', snapshot())
+      if (m.type === 'ping') return send(ws, 'clock', { serverNow: now, sentAt: m.sentAt })
+      if (m.type === 'cursor') {
+        if (m.visible && now - p.lastCursor < 40) return
+        p.lastCursor = now
+        p.cursor = m.visible && Number.isFinite(m.x) && Number.isFinite(m.y) ? { x: Math.max(0, Math.min(1, m.x)), y: Math.max(0, Math.min(1, m.y)) } : null
+        broadcast('cursor', { id: p.id, cursor: p.cursor }, ws); return
       }
-      for (const [peerSocket, peer] of clients) {
-        if (peer.ip === p.ip && peer.joined) send(peerSocket, 'welcome', { self: { id: peer.id, name: peer.name, emoji: peer.emoji }, ...snapshot() })
+      if (m.type === 'chat') {
+        const text = typeof m.text === 'string' ? m.text.trim().slice(0, 200) : ''
+        if (!text) return
+        if (now - p.lastChat < 600) return error(ws, '메시지는 잠깐 간격을 두고 보내주세요.')
+        const id = typeof m.requestId === 'string' ? m.requestId.slice(0,80) : ''
+        if (!id || requests.has('chat:' + id)) return
+        p.lastChat = now; requests.set('chat:' + id, now)
+        const row = { id: randomUUID(), text, at: now, personId: p.id, name: p.name, emoji: p.emoji, color: p.color }
+        try {
+          await store.append('chat.jsonl', row); chats.push(row)
+          try { await profiles.rememberMessage(p.ip, text, now) } catch(e) { diskError(e) }
+          for (const peer of clients.values()) if (peer.ip === p.ip) { peer.message = text; peer.messageAt = now }
+          broadcast('chat', { chat: row }); broadcast('people', { people: people() })
+        }
+        catch(e) { requests.delete('chat:' + id); diskError(e) }
+        return
       }
-      broadcast('people', { people: people() })
-      return
-    }
-    if (!p.joined) return
-    if (m.type === 'sync') return send(ws, 'state', snapshot())
-    if (m.type === 'ping') return send(ws, 'clock', { serverNow: now, sentAt: m.sentAt })
-    if (m.type === 'cursor') {
-      if (now - p.lastCursor < 40) return
-      p.lastCursor = now
-      p.cursor = m.visible && Number.isFinite(m.x) && Number.isFinite(m.y) ? { x: Math.max(0, Math.min(1, m.x)), y: Math.max(0, Math.min(1, m.y)) } : null
-      broadcast('cursor', { id: p.id, cursor: p.cursor }, ws); return
-    }
-    if (m.type === 'selection') {
-      if (activeSpin || settingsBusy) return error(ws, '돌림판이 돌고 있거나 다른 변경을 저장 중입니다.')
-      if (!restaurants.some(r => r.id === m.id) || typeof m.enabled !== 'boolean') return error(ws, '식당 선택 값이 잘못되었습니다.')
-      settingsBusy = true
-      const next = restaurants.filter(r => r.id === m.id ? m.enabled : selectedIds.includes(r.id)).map(r => r.id)
-      try { await store.set('settings.json', { ...settings(), selectedIds: next, angle: 0 }); selectedIds = next; angle = 0; broadcast('selection', { selectedIds, angle }) } catch (e) { diskError(e) } finally { settingsBusy = false }
-      return
-    }
-    if (m.type === 'chat') {
-      const text = typeof m.text === 'string' ? m.text.trim().slice(0, 200) : ''
-      if (!text) return
-      if (now - p.lastChat < 600) return error(ws, '메시지는 잠깐 간격을 두고 보내주세요.')
-      p.lastChat = now
-      const key = typeof m.requestId === 'string' ? m.requestId.slice(0, 80) : ''
-      if (!key) return
-      if (requests.has('chat:' + key)) return
-      requests.set('chat:' + key, now)
-      const row = { id: randomUUID(), text, at: now, personId: p.id, name: p.name, emoji: p.emoji, color: p.color }
-      try { await store.append('chat.jsonl', row); chats.push(row); p.message = text; p.messageAt = now; broadcast('chat', { chat: row }) } catch (e) { requests.delete('chat:' + key); diskError(e) }
-      return
-    }
-    if (m.type === 'spin') {
-      const key = typeof m.requestId === 'string' ? m.requestId.slice(0, 80) : ''
-      if (!key || requests.has('spin:' + key)) return
-      if (activeSpin || settingsBusy) return error(ws, '이미 돌리고 있어요. 결과를 함께 기다려주세요!')
-      if (selectedIds.length < 2) return error(ws, '식당을 2곳 이상 선택해 주세요.')
-      activeSpin = createSpin(selectedIds, angle, p, Number(process.env.SPIN_DURATION) || 4200)
-      requests.set('spin:' + key, now)
-      try {
-        await store.set('settings.json', settings())
-        activeSpin.startedAt = Date.now() + 180
-        await store.set('settings.json', settings())
-        broadcast('spin', { spin: activeSpin, serverNow: Date.now() })
-        pendingSpinTimer = setTimeout(settleSpin, Math.max(0, activeSpin.startedAt + activeSpin.duration - Date.now()))
-      } catch (e) { activeSpin = null; requests.delete('spin:' + key); diskError(e); broadcast('state', snapshot()) }
-    }
+      if (m.type === 'catalog-save') {
+        return await mutate(async () => {
+          if (m.version !== catalogVersion) return error(ws, '다른 사람이 정보를 변경했습니다. 최신 목록에서 다시 수정해 주세요.', m.requestId)
+          if (ROOM_IDS.some(key => rooms[key].spin)) return error(ws, '돌림판 회전이 끝난 뒤 정보를 변경해 주세요.', m.requestId)
+          let next
+          if (m.action === 'delete') {
+            if (!restaurants.some(r => r.id === m.id)) return error(ws, '이미 삭제된 후보입니다.', m.requestId)
+            next = restaurants.filter(r => r.id !== m.id)
+          } else if (m.action === 'upsert' && m.restaurant && typeof m.restaurant === 'object') {
+            const incoming = m.restaurant
+            const existing = restaurants.find(r => r.id === incoming.id)
+            const candidate = { ...existing, ...incoming, id: existing?.id || randomUUID() }
+            next = existing ? restaurants.map(r => r.id === existing.id ? candidate : r) : [...restaurants, candidate]
+          } else return error(ws, '등록 요청을 확인해 주세요.', m.requestId)
+          try { next = validateRestaurants(next) } catch(e) { return error(ws, e.message, m.requestId) }
+          // Persist the catalog first; UI success is sent only after the JSON is written.
+          await catalogStore.set(path.basename(catalogFile), next)
+          const previous = restaurants
+          restaurants = next; catalogVersion++
+          for (const key of ROOM_IDS) {
+            rooms[key].selectedIds = next.filter(r => r.room === key && (rooms[key].selectedIds.includes(r.id) || !previous.some(old => old.id === r.id && old.room === key))).map(r => r.id)
+            rooms[key].angle = 0
+          }
+          try { await store.set('settings.json', settings()) } catch(e) { diskError(e) }
+          broadcast('catalog', { restaurants, catalogVersion, rooms, requestId: m.requestId })
+        })
+      }
+      const key = m.room ?? 'lunch'
+      if (!ROOM_IDS.includes(key)) return error(ws, '커피방 또는 점심방을 선택해 주세요.')
+      if (m.type === 'selection') {
+        return await mutate(async () => {
+          const state = rooms[key]
+          if (state.spin) return error(ws, '회전이 끝난 뒤 후보를 변경해 주세요.')
+          if (!restaurants.some(r => r.id === m.id && r.room === key) || typeof m.enabled !== 'boolean') return error(ws, '후보 선택 값이 잘못되었습니다.')
+          const next = restaurants.filter(r => r.room === key && (r.id === m.id ? m.enabled : state.selectedIds.includes(r.id))).map(r => r.id)
+          await store.set('settings.json', settings({ [key]: { selectedIds: next, angle: 0 } }))
+          state.selectedIds = next; state.angle = 0
+          broadcast('selection', { room: key, selectedIds: next, angle: 0 })
+        })
+      }
+      if (m.type === 'spin') {
+        return await mutate(async () => {
+          const id = typeof m.requestId === 'string' ? m.requestId.slice(0,80) : ''
+          if (!id || requests.has(`spin:${key}:${id}`)) return
+          const state = rooms[key]
+          if (state.spin) return error(ws, '이미 돌리고 있어요. 결과를 함께 기다려주세요!')
+          if (state.selectedIds.length < 2) return error(ws, '후보를 2곳 이상 선택해 주세요.')
+          const spin = { ...createSpin(state.selectedIds, state.angle, p, Number(process.env.SPIN_DURATION) || 4200), room: key }
+          spin.restaurant = { ...restaurants.find(r => r.id === spin.winnerId) }
+          await store.set('settings.json', settings({ [key]: { activeSpin: spin } }))
+          spin.startedAt = Date.now() + 180
+          await store.set('settings.json', settings({ [key]: { activeSpin: spin } }))
+          state.spin = spin; requests.set(`spin:${key}:${id}`, now)
+          broadcast('spin', { room: key, spin, serverNow: Date.now() })
+          spinTimers.set(key, setTimeout(() => mutate(() => finalizeSpin(key)), Math.max(0, spin.startedAt + spin.duration - Date.now())))
+        })
+      }
+    } catch(e) { diskError(e) }
   })
 })
 const heartbeat = setInterval(() => {
@@ -174,20 +215,18 @@ const heartbeat = setInterval(() => {
 }, 15000)
 server.on('error', e => { console.error(e.code === 'EADDRINUSE' ? `${port}번 포트를 다른 프로그램이 사용 중입니다. PORT를 변경하세요.` : e); process.exit(1) })
 await new Promise(resolve => server.listen(port, '0.0.0.0', resolve))
-console.log(`\n🍚 GS강서타워 점심 돌림판\n  내 PC: http://localhost:${server.address().port}`)
+console.log(`\n☕🍚 GS강서타워 커피·점심방\n  내 PC: http://localhost:${server.address().port}`)
 for (const net of Object.values(networkInterfaces()).flat()) if (net?.family === 'IPv4' && !net.internal) console.log(`  사내 접속: http://${net.address}:${server.address().port}`)
 console.log(`  저장 위치: ${dataDir}\n  종료: Ctrl+C\n`)
 async function shutdown() {
   if (shuttingDown) return
-  shuttingDown = true; clearInterval(heartbeat); clearTimeout(pendingSpinTimer)
+  shuttingDown = true; clearInterval(heartbeat)
+  for (const timer of spinTimers.values()) clearTimeout(timer)
   for (const ws of clients.keys()) ws.close(1001, 'server shutdown')
-  await profiles.queue
-  await store.queue
+  await mutationQueue; await profiles.queue; await store.queue; await catalogStore.queue
   if (vite) await vite.close()
   server.close(() => process.exit(0))
   setTimeout(() => process.exit(0), 2000).unref()
 }
 process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown)
-
-
 

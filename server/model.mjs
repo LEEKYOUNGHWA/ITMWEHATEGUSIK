@@ -8,16 +8,21 @@ const json = text => JSON.parse(text.replace(/^\uFEFF/, ''))
 export async function readJson(file, fallback) {
   try { return json(await readFile(file, 'utf8')) } catch (e) { if (e.code === 'ENOENT' && fallback !== undefined) return fallback; throw new Error(`${file}: ${e.message}`) }
 }
-export async function loadRestaurants(file) {
-  const rows = await readJson(file)
-  if (!Array.isArray(rows) || !rows.length) throw new Error('restaurants.json: 식당을 한 곳 이상 입력하세요.')
+export const ROOM_IDS = ['coffee', 'lunch']
+export async function loadRestaurants(file) { return validateRestaurants(await readJson(file)) }
+export function validateRestaurants(rows) {
+  if (!Array.isArray(rows) || rows.length > 300) throw new Error('restaurants.json: 후보는 300개 이하의 배열이어야 합니다.')
   const ids = new Set()
   return rows.map(r => {
-    if (!r.id || typeof r.id !== 'string' || ids.has(r.id) || typeof r.name !== 'string' || !r.name.trim()) throw new Error(`식당 ID/이름 오류: ${r.name || r.id || '?'}`)
+    if (!r || typeof r.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(r.id) || ids.has(r.id) || typeof r.name !== 'string' || !r.name.trim()) throw new Error('후보 ID/이름 오류: ' + (r?.name || r?.id || '?'))
     ids.add(r.id)
+    const room = r.room ?? 'lunch'
+    if (!ROOM_IDS.includes(room)) throw new Error(r.name + ': room은 coffee 또는 lunch여야 합니다.')
     const absent = r.lat == null && r.lng == null
-    if (!absent && !(typeof r.lat === 'number' && typeof r.lng === 'number' && Number.isFinite(r.lat) && Number.isFinite(r.lng) && Math.abs(r.lat) <= 90 && Math.abs(r.lng) <= 180)) throw new Error(`${r.name}: lat/lng를 모두 숫자로 입력하거나 모두 null로 두세요.`)
-    return { ...r, category: String(r.category || ''), description: String(r.description || ''), hours: String(r.hours || ''), lat: absent ? null : r.lat, lng: absent ? null : r.lng }
+    if (!absent && !(typeof r.lat === 'number' && typeof r.lng === 'number' && Number.isFinite(r.lat) && Number.isFinite(r.lng) && Math.abs(r.lat) <= 90 && Math.abs(r.lng) <= 180)) throw new Error(r.name + ': lat/lng를 모두 숫자로 입력하거나 모두 null로 두세요.')
+    const clean = { ...r, room, name: r.name.trim().slice(0,60), lat: absent ? null : r.lat, lng: absent ? null : r.lng }
+    for (const field of ['category','description','hours','address','source','coordinateNote','addressSource']) clean[field] = String(r[field] || '').slice(0,600)
+    return clean
   })
 }
 export async function readLines(file) {
@@ -72,7 +77,7 @@ export class IpProfiles {
       const name = typeof incoming.name === 'string' && incoming.name.trim() ? [...incoming.name.trim()].slice(0, 16).join('') : previous.name
       const emoji = EMOJIS.includes(incoming.emoji) ? incoming.emoji : previous.emoji
       if (known && known.name === name && known.emoji === emoji) return known
-      const profile = { name, emoji, updatedAt: new Date().toISOString() }
+      const profile = { ...known, name, emoji, updatedAt: new Date().toISOString() }
       const next = { ...this.entries, [key]: profile }
       await this.store.set('profiles.json', next)
       this.entries = next
@@ -81,4 +86,16 @@ export class IpProfiles {
     this.queue = result.catch(() => {})
     return result
   }
+  rememberMessage(ip, message, at) {
+    const result = this.queue.then(async () => {
+      const key = normalizeIp(ip), known = this.entries[key]
+      if (!known) return
+      const next = { ...this.entries, [key]: { ...known, lastMessage: message, lastMessageAt: at } }
+      await this.store.set('profiles.json', next)
+      this.entries = next
+    })
+    this.queue = result.catch(() => {})
+    return result
+  }
+
 }

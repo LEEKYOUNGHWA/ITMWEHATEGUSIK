@@ -1,39 +1,63 @@
 <script setup>
-import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { onMounted, onBeforeUnmount, ref, watch, nextTick } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-const props = defineProps({ restaurants: Array, result: Object, spin: Object })
+const props = defineProps({ restaurants: Array, result: Object, spin: Object, wheelVisible: Boolean })
 const emit = defineEmits(['status'])
 const el = ref(null)
 const tower=[37.5208140305289,126.88903960161] // 선유로 75 건물 대표 좌표, 출처는 README 참조
-let map, markers = new Map(), layer, timer, loaded = false
+let map, markers = new Map(), layer, timer, loaded = false, manuallyMoved = false, resizeObserver, resizeFrame
 const valid = r => typeof r.lat === 'number' && typeof r.lng === 'number'
 const reduce = () => matchMedia('(prefers-reduced-motion: reduce)').matches
-function overview() {
+function visibleArea() {
+  const rect=el.value.getBoundingClientRect(), size=map.getSize()
+  const card=(document.querySelector('.catalog-card')||document.querySelector('.wheel-card'))?.getBoundingClientRect()
+  const footer=null
+  let left=24
+  if(card && card.bottom>rect.top && card.top<rect.bottom && size.x-(card.right-rect.left)>160) left=card.right-rect.left+28
+  const bottom=Math.max(80,Math.min(size.y-24,(footer?.top ?? rect.bottom)-rect.top-20))
+  return {left,right:Math.max(left+1,size.x-24),top:24,bottom,size}
+}
+function markManual() { manuallyMoved=true }
+function overview(animate=true) {
   if (!map) return
   const points = [tower,...props.restaurants.filter(valid).map(r => [r.lat,r.lng])]
   for (const marker of markers.values()) marker.getElement()?.classList.remove('winner-marker')
-  if (points.length) map.flyToBounds(L.latLngBounds(points).pad(.35), { maxZoom: 16, duration: reduce() ? 0 : 1.2, padding: [65,65], animate: !reduce() })
+  const area=visibleArea()
+  const options={maxZoom:16,paddingTopLeft:[area.left,area.top],paddingBottomRight:[24,area.size.y-area.bottom],animate:animate&&!reduce(),duration:1.2}
+  const bounds=L.latLngBounds(points).pad(.15)
+  if(options.animate) map.flyToBounds(bounds,options)
+  else map.fitBounds(bounds,options)
 }
-function focus(result) {
+function focus(result,animate=true) {
   const r = result?.restaurant
   if (!map || !r || !valid(r)) return
   for (const [id, marker] of markers) marker.getElement()?.classList.toggle('winner-marker', id === r.id)
-  const zoom=17
-  const card=document.querySelector('.wheel-card')?.getBoundingClientRect()
-  const panel=document.querySelector('.side-panel')?.getBoundingClientRect()
-  let desiredX=innerWidth/2
-  if(card && innerWidth>760){
-    const edge=panel?.width ? panel.left : innerWidth
-    if(edge-card.right>100) desiredX=(card.right+edge)/2
-    else if(card.left>100) desiredX=card.left/2
-  }
-  const offset=L.point(desiredX-innerWidth/2,0)
+  const zoom=17,area=visibleArea()
+  const desired=L.point((area.left+area.right)/2,(area.top+area.bottom)/2)
+  const offset=desired.subtract(area.size.divideBy(2))
   const center=map.unproject(map.project([r.lat,r.lng],zoom).subtract(offset),zoom)
-  map.flyTo(center,zoom,{ duration: reduce() ? 0 : 2, animate: !reduce() })
+  if(animate&&!reduce()) map.flyTo(center,zoom,{duration:2})
+  else map.setView(center,zoom,{animate:false})
 }
 onMounted(() => {
-  map = L.map(el.value, { zoomControl:false, dragging:false, scrollWheelZoom:false, doubleClickZoom:false, touchZoom:false, boxZoom:false, keyboard:false, attributionControl:true }).setView(tower,15)
+  map = L.map(el.value, { zoomControl:false, dragging:true, scrollWheelZoom:true, doubleClickZoom:true, touchZoom:true, boxZoom:true, keyboard:true, attributionControl:true }).setView(tower,15)
+  const zoomControl=L.control.zoom({position:'topright',zoomInTitle:'확대',zoomOutTitle:'축소'}).addTo(map)
+  L.DomEvent.on(zoomControl.getContainer(),'pointerdown',markManual)
+  const ResetControl=L.Control.extend({
+    options:{position:'topright'},
+    onAdd() {
+      const container=L.DomUtil.create('div','leaflet-bar')
+      const button=L.DomUtil.create('button','map-reset-button',container)
+      button.type='button';button.textContent='전체 보기';button.setAttribute('aria-label','전체 식당 위치 보기')
+      L.DomEvent.disableClickPropagation(container)
+      L.DomEvent.on(button,'click',()=>{manuallyMoved=false;overview()})
+      return container
+    }
+  })
+  new ResetControl().addTo(map)
+  map.on('dragstart',markManual)
+  for(const event of ['wheel','touchstart','keydown']) el.value.addEventListener(event,markManual,{passive:true})
   layer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors' }).addTo(map)
   layer.on('tileload', () => { loaded=true; emit('status','ready') })
   layer.on('tileerror', () => { if (!loaded) emit('status','error') })
@@ -45,12 +69,28 @@ onMounted(() => {
     markers.set(r.id,marker)
   })
   const towerLabel=document.createElement('span');towerLabel.textContent='GS강서타워';L.marker(tower,{icon:L.divIcon({className:'tower-marker',html:'🏢',iconSize:[38,38],iconAnchor:[19,38]}),interactive:false}).addTo(map).bindTooltip(towerLabel,{permanent:true,direction:'top',offset:[0,-38],className:'map-label'})
-  overview()
-  if (!props.spin) focus(props.result)
+  overview(false)
+  if (!props.spin) focus(props.result,false)
+  resizeObserver=new ResizeObserver(()=>{
+    cancelAnimationFrame(resizeFrame)
+    resizeFrame=requestAnimationFrame(()=>{
+      map.invalidateSize({pan:false})
+      if(!manuallyMoved) {
+        if(!props.spin && valid(props.result?.restaurant || {})) focus(props.result,false)
+        else overview(false)
+      }
+    })
+  })
+  resizeObserver.observe(el.value)
 })
-watch(() => props.spin?.id, id => { if (id) overview() })
-watch(() => props.result?.id, () => focus(props.result))
-onBeforeUnmount(() => { clearTimeout(timer); map?.remove() })
+watch(() => props.spin?.id, id => { if (id) { manuallyMoved=false;overview() } })
+watch(() => props.result?.id, () => { manuallyMoved=false;focus(props.result) })
+watch(() => props.wheelVisible, async () => {
+  await nextTick()
+  if(!map || manuallyMoved) return
+  if(!props.spin && valid(props.result?.restaurant || {})) focus(props.result,false)
+  else overview(false)
+})
+onBeforeUnmount(() => { clearTimeout(timer);cancelAnimationFrame(resizeFrame);resizeObserver?.disconnect();for(const event of ['wheel','touchstart','keydown']) el.value?.removeEventListener(event,markManual);map?.remove() })
 </script>
-<template><div ref="el" class="map-canvas" aria-hidden="true"></div></template>
-
+<template><div ref="el" class="map-canvas" role="region" aria-label="식당 지도 · 드래그로 이동하고 휠로 확대·축소"></div></template>

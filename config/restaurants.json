@@ -1,4 +1,4 @@
-﻿[
+[
   {
     "id": "r01",
     "name": "짬뽕지존",
@@ -10,7 +10,8 @@
     "lng": 126.8898968845,
     "source": "https://jusoga.com/b/1156012100100820029024697/서울특별시-영등포구-선유로-70-문래동3가",
     "coordinateNote": "주소를 대조한 건물 대표 좌표입니다. 실제 출입구와 차이가 있을 수 있습니다.",
-    "addressSource": "https://www.diningcode.com/profile.php?rid=VHlPqvyMR4ss"
+    "addressSource": "https://www.diningcode.com/profile.php?rid=VHlPqvyMR4ss",
+    "room": "lunch"
   },
   {
     "id": "r02",
@@ -23,7 +24,8 @@
     "lng": 126.8913363,
     "source": "https://findby.co.kr/details/07294-115603118008-st-652c0982f27008be2c4da377",
     "coordinateNote": "주소를 대조한 건물 대표 좌표입니다. 실제 출입구와 차이가 있을 수 있습니다.",
-    "addressSource": "https://www.diningcode.com/profile.php?rid=hqGKHSagIqLP"
+    "addressSource": "https://www.diningcode.com/profile.php?rid=hqGKHSagIqLP",
+    "room": "lunch"
   },
   {
     "id": "r03",
@@ -35,7 +37,8 @@
     "lat": 37.5192561,
     "lng": 126.8922105,
     "source": "https://findby.co.kr/details/07295-115603118008-st-652c0982f27008be2c4da39f",
-    "coordinateNote": "주소 대조한 건물 대표 좌표"
+    "coordinateNote": "주소 대조한 건물 대표 좌표",
+    "room": "lunch"
   },
   {
     "id": "r04",
@@ -48,7 +51,8 @@
     "lng": 126.88918862224,
     "source": "https://jusoga.com/b/1156012200100090007022582/서울특별시-영등포구-도림로147길-2-문래동4가",
     "coordinateNote": "주소를 대조한 건물 대표 좌표입니다. 실제 출입구와 차이가 있을 수 있습니다.",
-    "addressSource": "https://www.diningcode.com/profile.php?rid=siqdu5P4DZD1"
+    "addressSource": "https://www.diningcode.com/profile.php?rid=siqdu5P4DZD1",
+    "room": "lunch"
   },
   {
     "id": "r05",
@@ -61,7 +65,8 @@
     "lng": 126.8895721,
     "source": "https://findby.co.kr/details/07288-115604154242-st-652c098cf27008be2c4dbc1d",
     "coordinateNote": "주소를 대조한 건물 대표 좌표입니다. 실제 출입구와 차이가 있을 수 있습니다.",
-    "addressSource": "https://mzc.purpleo.kr/article/20366"
+    "addressSource": "https://mzc.purpleo.kr/article/20366",
+    "room": "lunch"
   },
   {
     "id": "r06",
@@ -73,7 +78,8 @@
     "lat": null,
     "lng": null,
     "source": "https://www.diningcode.com/profile.php?rid=AqioENAGyNsc",
-    "coordinateNote": ""
+    "coordinateNote": "",
+    "room": "lunch"
   },
   {
     "id": "r07",
@@ -85,7 +91,8 @@
     "lat": 37.5163186259169,
     "lng": 126.889679697407,
     "source": "https://ykm.purpleo.kr/article/33517",
-    "coordinateNote": "공공 상가정보를 제공하는 페이지의 좌표"
+    "coordinateNote": "공공 상가정보를 제공하는 페이지의 좌표",
+    "room": "lunch"
   },
   {
     "id": "r08",
@@ -98,7 +105,8 @@
     "lng": 126.896498906663,
     "source": "https://wso.purpleo.kr/article/14511",
     "coordinateNote": "주소를 대조한 건물 대표 좌표입니다. 실제 출입구와 차이가 있을 수 있습니다.",
-    "addressSource": "https://www.diningcode.com/profile.php?rid=ubEVdKCY0ZWQ"
+    "addressSource": "https://www.diningcode.com/profile.php?rid=ubEVdKCY0ZWQ",
+    "room": "lunch"
   },
   {
     "id": "r09",
@@ -110,7 +118,8 @@
     "lat": 37.5174600622482,
     "lng": 126.896498906663,
     "source": "https://wso.purpleo.kr/article/14511",
-    "coordinateNote": "공공 상가정보를 제공하는 페이지의 건물 대표 좌표"
+    "coordinateNote": "공공 상가정보를 제공하는 페이지의 건물 대표 좌표",
+    "room": "lunch"
   },
   {
     "id": "r10",
@@ -122,7 +131,8 @@
     "lat": null,
     "lng": null,
     "source": "",
-    "coordinateNote": "원본 상호(서여산)로 문래 지점을 확인하지 못했습니다. 직접 확인해 입력해 주세요."
+    "coordinateNote": "원본 상호(서여산)로 문래 지점을 확인하지 못했습니다. 직접 확인해 입력해 주세요.",
+    "room": "lunch"
   },
   {
     "id": "r11",
@@ -135,7 +145,8 @@
     "lng": 126.89319976214,
     "source": "https://jusoga.com/b/1156012000100420006024700/서울특별시-영등포구-도림로139가길-11-1-문래동2가",
     "coordinateNote": "주소를 대조한 건물 대표 좌표입니다. 실제 출입구와 차이가 있을 수 있습니다.",
-    "addressSource": "https://fspf.purpleo.co.kr/view/327"
+    "addressSource": "https://fspf.purpleo.co.kr/view/327",
+    "room": "lunch"
   },
   {
     "id": "r12",
@@ -147,7 +158,7 @@
     "lat": 37.513873,
     "lng": 126.8936539,
     "source": "https://findby.co.kr/details/07290-115604154232-st-652c0982f27008be2c4da109",
-    "coordinateNote": "주소 대조한 건물 대표 좌표"
+    "coordinateNote": "주소 대조한 건물 대표 좌표",
+    "room": "lunch"
   }
 ]
-

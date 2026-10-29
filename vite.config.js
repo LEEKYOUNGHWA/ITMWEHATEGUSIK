@@ -2,6 +2,11 @@
 import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
-  server: { allowedHosts: true, fs: { strict: true, deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/data/**', '**/config/**', '**/server/**', '**/tests/**', '**/scripts/**'] } },
+  server: {
+    allowedHosts: true,
+    // Polling avoids Windows EBUSY errors while Git or an editor replaces files.
+    watch: { usePolling: true, interval: 300, ignored: ['**/.git/**', '**/.gitattributes', '**/.gitignore', '**/data/**', '**/server/**', '**/tests/**', '**/scripts/**'] },
+    fs: { strict: true, deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/data/**', '**/config/**', '**/server/**', '**/tests/**', '**/scripts/**'] }
+  },
   build: { outDir: 'dist' }
 })

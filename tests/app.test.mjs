@@ -27,7 +27,9 @@ test('파일 쓰기는 순서대로 저장하고 실패 후에도 다음 쓰기�
   await assert.rejects(store.append('missing/fail.jsonl',{x:1}));await store.append('history.jsonl',{i:20});assert.equal((await readLines(path.join(dir,'history.jsonl'))).length,21)
 }))
 async function start(dir, dev=false) {
-  const child=spawn(process.execPath,['server/index.mjs',...(dev?['--dev']:[])],{cwd:root,env:{...process.env,DATA_DIR:dir,PORT:'0',SPIN_DURATION:'220'},stdio:['ignore','pipe','pipe']})
+  const catalogFile=path.join(dir,'restaurants.json')
+  try { await readFile(catalogFile) } catch(e) { if(e.code!=='ENOENT')throw e;await writeFile(catalogFile,await readFile(path.join(root,'config/restaurants.json'))) }
+  const child=spawn(process.execPath,['server/index.mjs',...(dev?['--dev']:[])],{cwd:root,env:{...process.env,DATA_DIR:dir,RESTAURANTS_FILE:catalogFile,PORT:'0',SPIN_DURATION:'220'},stdio:['ignore','pipe','pipe']})
   let output='';child.stderr.on('data',d=>output+=d)
   const port=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(output||'server startup timeout')),12000);child.stdout.on('data',d=>{output+=d;const match=output.match(/localhost:(\d+)/);if(match){clearTimeout(timer);resolve(+match[1])}});child.once('exit',code=>{clearTimeout(timer);reject(new Error(`server exit ${code}: ${output}`))})})
   return {port,child,stop:()=>new Promise(resolve=>{child.once('exit',resolve);child.kill()})}
@@ -121,5 +123,71 @@ test('같은 IP의 재접속·다른 탭·서버 재시작에서 이름/이모�
     for(const p of clients)p.ws.close();await app.stop();app=null
     app=await start(dir);const restored=await client(app.port,'브라우저기억없음');clients=[restored]
     assert.equal(restored.welcome.self.name,'최종이름');assert.equal(restored.welcome.self.emoji,'🥷')
+  }finally{for(const p of clients)p.ws.close();if(app)await app.stop()}
+}))
+
+test('커피·점심은 후보와 회전을 분리하고 채팅·이력 및 JSON 편집은 공유한다',()=>temporary(async dir=>{
+  let app=await start(dir),clients=[]
+  try{
+    const a=await client(app.port,'커피친구'),b=await client(app.port,'점심친구');clients=[a,b]
+    assert.equal(a.welcome.rooms.coffee.selectedIds.length,0)
+    const originalLunch=[...a.welcome.rooms.lunch.selectedIds]
+    a.send('catalog-save',{action:'upsert',version:0,requestId:'add-coffee-a',restaurant:{room:'coffee',name:'테스트카페A',lat:37.52,lng:126.89}})
+    const first=await b.wait('catalog',m=>m.requestId==='add-coffee-a')
+    const coffeeA=first.restaurants.find(r=>r.name==='테스트카페A')
+    assert.ok(coffeeA);assert.deepEqual(first.rooms.lunch.selectedIds,originalLunch)
+    b.send('catalog-save',{action:'upsert',version:1,requestId:'add-coffee-b',restaurant:{room:'coffee',name:'테스트카페B',lat:null,lng:null}})
+    const second=await a.wait('catalog',m=>m.requestId==='add-coffee-b')
+    const coffeeB=second.restaurants.find(r=>r.name==='테스트카페B')
+    assert.equal(second.rooms.coffee.selectedIds.length,2)
+    a.send('catalog-save',{action:'upsert',version:0,requestId:'stale-edit',restaurant:{...coffeeA,name:'덮어쓰기'}})
+    await a.wait('error',m=>m.requestId==='stale-edit'&&m.message.includes('다른 사람'))
+    a.send('catalog-save',{action:'upsert',version:2,requestId:'bad-coordinates',restaurant:{room:'coffee',name:'잘못된위치',lat:99,lng:126}})
+    await a.wait('error',m=>m.requestId==='bad-coordinates'&&m.message.includes('lat/lng'))
+    a.send('selection',{room:'coffee',id:coffeeA.id,enabled:false});await b.wait('selection',m=>m.room==='coffee'&&!m.selectedIds.includes(coffeeA.id))
+    a.send('selection',{room:'coffee',id:coffeeA.id,enabled:true});await b.wait('selection',m=>m.room==='coffee'&&m.selectedIds.includes(coffeeA.id))
+    a.send('spin',{room:'coffee',requestId:'coffee-spin'});b.send('spin',{room:'lunch',requestId:'lunch-spin'})
+    await a.wait('spin',m=>m.room==='coffee');await a.wait('spin',m=>m.room==='lunch')
+    a.send('catalog-save',{action:'delete',version:2,requestId:'during-spin',id:coffeeA.id});await a.wait('error',m=>m.requestId==='during-spin'&&m.message.includes('회전'))
+    const coffeeResult=await a.wait('result',m=>m.room==='coffee'),lunchResult=await b.wait('result',m=>m.room==='lunch')
+    assert.notEqual(coffeeResult.result.id,lunchResult.result.id)
+    const commonHistory=await readLines(path.join(dir,'history.jsonl'));assert.equal(commonHistory.length,2);assert.deepEqual(new Set(commonHistory.map(h=>h.room)),new Set(['coffee','lunch']))
+    a.send('chat',{text:'방은 달라도 채팅은 같이!',requestId:'common-chat'});assert.equal((await b.wait('chat')).chat.text,'방은 달라도 채팅은 같이!')
+    a.send('catalog-save',{action:'upsert',version:2,requestId:'edit-coffee',restaurant:{...coffeeA,name:'수정한카페'}})
+    await b.wait('catalog',m=>m.requestId==='edit-coffee'&&m.restaurants.some(r=>r.id===coffeeA.id&&r.name==='수정한카페'))
+    a.send('catalog-save',{action:'delete',version:3,requestId:'delete-lunch',id:lunchResult.result.restaurantId})
+    await b.wait('catalog',m=>m.requestId==='delete-lunch'&&!m.restaurants.some(r=>r.id===lunchResult.result.restaurantId))
+    const persisted=JSON.parse(await readFile(path.join(dir,'restaurants.json'),'utf8'))
+    assert.equal(persisted.filter(r=>r.room==='coffee').length,2);assert.ok(persisted.every(r=>r.name!=='덮어쓰기'&&r.name!=='잘못된위치'))
+    for(const p of clients)p.ws.close();await app.stop();app=null
+    app=await start(dir);const restored=await client(app.port,'복원');clients=[restored]
+    assert.equal(restored.welcome.rooms.coffee.selectedIds.length,2);assert.equal(restored.welcome.rooms.lunch.selectedIds.length,originalLunch.length-1)
+    assert.equal(restored.welcome.history.length,2);assert.equal(restored.welcome.chats.length,1);assert.equal(restored.welcome.people.find(p=>p.id===restored.welcome.self.id).message,'방은 달라도 채팅은 같이!')
+    assert.equal(restored.welcome.rooms.lunch.lastResult.restaurant.name,lunchResult.result.restaurant.name)
+    restored.send('catalog-save',{action:'delete',version:0,requestId:'delete-coffee-a',id:coffeeA.id});await restored.wait('catalog',m=>m.requestId==='delete-coffee-a')
+    restored.send('catalog-save',{action:'delete',version:1,requestId:'delete-coffee-b',id:coffeeB.id});const empty=await restored.wait('catalog',m=>m.requestId==='delete-coffee-b')
+    assert.equal(empty.rooms.coffee.selectedIds.length,0)
+    restored.send('spin',{room:'coffee',requestId:'empty-room-spin'});await restored.wait('error',m=>m.message.includes('2곳'))
+  }finally{for(const p of clients)p.ws.close();if(app)await app.stop()}
+}))
+
+test('기존 단일 점심방의 설정·이력·채팅을 두 방으로 전환해도 보존한다',()=>temporary(async dir=>{
+  const catalog=JSON.parse((await readFile(path.join(root,'config/restaurants.json'),'utf8')).replace(/^\uFEFF/,''))
+  const selectedIds=catalog.filter(r=>(r.room||'lunch')==='lunch').slice(0,3).map(r=>r.id)
+  await writeFile(path.join(dir,'settings.json'),JSON.stringify({selectedIds,angle:1.25,activeSpin:null}))
+  const legacy={id:'legacy-result',restaurantId:catalog[0].id,restaurant:catalog[0],at:1700000000000,actor:{name:'기존사용자',emoji:'🧑‍🍳'}}
+  await writeFile(path.join(dir,'history.jsonl'),JSON.stringify(legacy)+'\n')
+  await writeFile(path.join(dir,'chat.jsonl'),JSON.stringify({id:'legacy-chat',text:'기존채팅',at:1700000000000,name:'기존사용자',emoji:'🧑‍🍳'})+'\n')
+  let app=await start(dir),clients=[]
+  try{
+    const a=await client(app.port,'전환확인');clients=[a]
+    assert.deepEqual(a.welcome.rooms.lunch.selectedIds,selectedIds);assert.equal(a.welcome.rooms.lunch.angle,1.25)
+    assert.equal(a.welcome.rooms.coffee.selectedIds.length,0);assert.equal(a.welcome.history[0].room,'lunch');assert.equal(a.welcome.rooms.lunch.lastResult.id,'legacy-result');assert.equal(a.welcome.chats[0].text,'기존채팅')
+    a.send('spin',{room:'lunch',requestId:'after-migration'});await a.wait('result',m=>m.room==='lunch')
+    const settings=JSON.parse(await readFile(path.join(dir,'settings.json'),'utf8'));assert.deepEqual(settings.rooms.lunch.selectedIds,selectedIds)
+    assert.equal((await readLines(path.join(dir,'history.jsonl'))).length,2)
+    a.ws.close();await app.stop();app=null
+    app=await start(dir);const b=await client(app.port,'재시작');clients=[b]
+    assert.equal(b.welcome.history.length,2);assert.equal(b.welcome.chats[0].id,'legacy-chat');assert.deepEqual(b.welcome.rooms.lunch.selectedIds,selectedIds)
   }finally{for(const p of clients)p.ws.close();if(app)await app.stop()}
 }))
