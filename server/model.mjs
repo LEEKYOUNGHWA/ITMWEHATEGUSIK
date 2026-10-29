@@ -43,7 +43,7 @@ export function createSpin(ids, angle, actor, duration = 4200) {
   const target = TAU - (winnerIndex + .5) * step
   const normalized = ((angle % TAU) + TAU) % TAU
   const endAngle = angle + TAU * 7 + ((target - normalized + TAU) % TAU)
-  return { id: randomUUID(), ids: [...ids], winnerId: ids[winnerIndex], startAngle: angle, endAngle, startedAt: Date.now() + 180, duration, actor: { name: actor.name, emoji: actor.emoji } }
+  return { id: randomUUID(), ids: [...ids], winnerId: ids[winnerIndex], startAngle: angle, endAngle, startedAt: Date.now() + 180, duration, actor: { profileId: actor.profileId, name: actor.name, emoji: actor.emoji } }
 }
 export function pickedId(spin) { return spin.ids[Math.floor((((-spin.endAngle % TAU) + TAU) % TAU) / (TAU / spin.ids.length)) % spin.ids.length] }
 
@@ -55,12 +55,21 @@ export function normalizeIp(address = '') {
 export class IpProfiles {
   constructor(store, entries = {}) {
     if (!entries || typeof entries !== 'object' || Array.isArray(entries)) throw new Error('profiles.json: IP별 프로필 객체여야 합니다.')
+    this.idsAdded = false
     for (const [ip, profile] of Object.entries(entries)) {
       if (!profile || typeof profile.name !== 'string' || !profile.name.trim() || !EMOJIS.includes(profile.emoji)) throw new Error('profiles.json: 잘못된 프로필 ' + ip)
+      // Older profiles.json files have no id; chats and spins link to the profile through it.
+      if (typeof profile.id !== 'string' || !profile.id) { profile.id = randomUUID(); this.idsAdded = true }
     }
     this.store = store
     this.entries = entries
     this.queue = Promise.resolve()
+  }
+  persistIds() { if (!this.idsAdded) return; this.idsAdded = false; return this.store.set('profiles.json', this.entries) }
+  // Replace the name/emoji saved on a chat or spin row with the profile's current one.
+  current(row) {
+    const profile = row?.profileId && Object.values(this.entries).find(p => p.id === row.profileId)
+    return profile ? { ...row, name: profile.name, emoji: profile.emoji } : row
   }
   resolve(ip, incoming, fallback, explicit = false) {
     const result = this.queue.then(async () => {
@@ -72,7 +81,7 @@ export class IpProfiles {
       const name = typeof incoming.name === 'string' && incoming.name.trim() ? [...incoming.name.trim()].slice(0, 16).join('') : previous.name
       const emoji = EMOJIS.includes(incoming.emoji) ? incoming.emoji : previous.emoji
       if (known && known.name === name && known.emoji === emoji) return known
-      const profile = { name, emoji, updatedAt: new Date().toISOString() }
+      const profile = { id: known?.id || randomUUID(), name, emoji, updatedAt: new Date().toISOString() }
       const next = { ...this.entries, [key]: profile }
       await this.store.set('profiles.json', next)
       this.entries = next

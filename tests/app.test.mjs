@@ -104,6 +104,25 @@ test('IP 프로필 저장 실패 후 다음 저장을 처리할 수 있다',()=>
   assert.equal(profiles.entries['10.0.0.1'],undefined)
   assert.equal((await profiles.resolve('10.0.0.1',{name:'저장성공'},fallback)).name,'저장성공')
 }))
+test('이름을 바꾸면 이전 채팅과 선정 이력도 바뀐 이름으로 보인다',()=>temporary(async dir=>{
+  // profiles.json from before profile ids existed must still load and get an id.
+  await writeFile(path.join(dir,'profiles.json'),JSON.stringify({'127.0.0.1':{name:'예전프로필',emoji:'🧙'}}))
+  let app=await start(dir),clients=[]
+  try{
+    const a=await client(app.port,'무시됨');clients.push(a);assert.equal(a.welcome.self.name,'예전프로필')
+    a.send('chat',{text:'김치찌개?',requestId:'rename-chat'});await a.wait('chat')
+    a.send('spin',{requestId:'rename-spin'});await a.wait('result')
+    const b=await client(app.port,'옆자리',{});clients.push(b)
+    a.send('profile',{name:'새이름',emoji:'🥷'})
+    const rename=await b.wait('rename',m=>m.name==='새이름');assert.equal(rename.emoji,'🥷')
+    const state=await (await fetch(`http://127.0.0.1:${app.port}/api/state`)).json()
+    assert.equal(state.chats[0].name,'새이름');assert.equal(state.chats[0].emoji,'🥷')
+    assert.equal(state.history[0].actor.name,'새이름');assert.equal(state.lastResult.actor.name,'새이름')
+    for(const p of clients)p.ws.close();await app.stop();app=null
+    app=await start(dir);const restored=await client(app.port,'재시작');clients=[restored]
+    assert.equal(restored.welcome.chats[0].name,'새이름');assert.equal(restored.welcome.history[0].actor.name,'새이름')
+  }finally{for(const p of clients)p.ws.close();if(app)await app.stop()}
+}))
 test('같은 IP의 재접속·다른 탭·서버 재시작에서 이름/이모지가 복원된다',()=>temporary(async dir=>{
   let app=await start(dir),clients=[]
   try{

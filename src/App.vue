@@ -39,6 +39,7 @@ function connect() {
       if(m.chat.personId===selfId.value) draft.value=''
       await nextTick();chatBox.value?.scrollTo({top:chatBox.value.scrollHeight,behavior:'smooth'})
     }
+    if(m.type==='rename') { const rename=r=>{if(r?.profileId===m.profileId){r.name=m.name;r.emoji=m.emoji}};state.chats.forEach(rename);state.history.forEach(h=>rename(h.actor));rename(state.lastResult?.actor);rename(state.spin?.actor) }
     if(m.type==='clock') serverOffset.value=m.serverNow-(m.sentAt+Date.now())/2
     if(m.type==='error') notify(m.message)
   }

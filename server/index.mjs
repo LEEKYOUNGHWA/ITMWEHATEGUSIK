@@ -14,6 +14,7 @@ const store = new Store(dataDir)
 await store.init()
 const saved = await readJson(path.join(dataDir, 'settings.json'), {})
 const profiles = new IpProfiles(store, await readJson(path.join(dataDir, 'profiles.json'), {}))
+await profiles.persistIds()
 const history = await readLines(path.join(dataDir, 'history.jsonl'))
 const chats = await readLines(path.join(dataDir, 'chat.jsonl'))
 let selectedIds = Array.isArray(saved.selectedIds) ? restaurants.filter(r => saved.selectedIds.includes(r.id)).map(r => r.id) : restaurants.map(r => r.id)
@@ -33,7 +34,8 @@ const send = (ws, type, payload) => { if (ws.readyState === WebSocket.OPEN) ws.s
 const broadcast = (type, payload, except) => { for (const ws of clients.keys()) if (ws !== except) send(ws, type, payload) }
 const people = () => [...clients.values()].filter(p => p.joined).map(({ id, name, emoji, color, cursor, message, messageAt }) => ({ id, name, emoji, color, cursor, message, messageAt }))
 const settings = () => ({ selectedIds, angle, activeSpin })
-const snapshot = () => ({ serverNow: Date.now(), restaurants, selectedIds, angle, spin: activeSpin, lastResult, history: history.slice(-500).reverse(), chats: chats.slice(-200), people: people() })
+const withActor = row => row && { ...row, actor: profiles.current(row.actor) }
+const snapshot = () => ({ serverNow: Date.now(), restaurants, selectedIds, angle, spin: withActor(activeSpin), lastResult: withActor(lastResult), history: history.slice(-500).reverse().map(withActor), chats: chats.slice(-200).map(c => profiles.current(c)), people: people() })
 const error = (ws, message) => send(ws, 'error', { message })
 const diskError = e => { console.error('파일 저장 실패:', e); broadcast('error', { message: '파일 저장에 실패했습니다. 디스크 공간과 data 폴더 권한을 확인하세요.' }) }
 async function settleSpin() {
@@ -47,7 +49,7 @@ async function settleSpin() {
     angle = ((spin.endAngle % TAU) + TAU) % TAU
     await store.set('settings.json', { selectedIds, angle, activeSpin: null })
     activeSpin = null
-    broadcast('result', { result: lastResult, angle, serverNow: Date.now() })
+    broadcast('result', { result: withActor(lastResult), angle, serverNow: Date.now() })
   } catch (e) { diskError(e); pendingSpinTimer = setTimeout(settleSpin, 3000) }
 }
 if (activeSpin) {
@@ -114,11 +116,13 @@ wss.on('connection', (ws, req) => {
       for (const [peerSocket, peer] of clients) {
         if (peer.ip !== p.ip || !peer.joined) continue
         peer.name = identity.name; peer.emoji = identity.emoji
+        if (identity.id) peer.profileId = identity.id
       }
       for (const [peerSocket, peer] of clients) {
         if (peer.ip === p.ip && peer.joined) send(peerSocket, 'welcome', { self: { id: peer.id, name: peer.name, emoji: peer.emoji }, ...snapshot() })
       }
       broadcast('people', { people: people() })
+      if (identity.id) broadcast('rename', { profileId: identity.id, name: identity.name, emoji: identity.emoji })
       return
     }
     if (!p.joined) return
@@ -147,7 +151,7 @@ wss.on('connection', (ws, req) => {
       if (!key) return
       if (requests.has('chat:' + key)) return
       requests.set('chat:' + key, now)
-      const row = { id: randomUUID(), text, at: now, personId: p.id, name: p.name, emoji: p.emoji, color: p.color }
+      const row = { id: randomUUID(), text, at: now, personId: p.id, profileId: p.profileId, name: p.name, emoji: p.emoji, color: p.color }
       try { await store.append('chat.jsonl', row); chats.push(row); p.message = text; p.messageAt = now; broadcast('chat', { chat: row }) } catch (e) { requests.delete('chat:' + key); diskError(e) }
       return
     }
