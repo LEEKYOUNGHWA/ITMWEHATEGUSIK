@@ -75,6 +75,7 @@ function Invoke-Tool([string]$File, [string[]]$Arguments, [string]$Directory = $
   $process = [Diagnostics.Process]::new()
   $process.StartInfo = New-Process $File $Arguments $Directory
   try {
+    Write-Log ('명령 시작: ' + [IO.Path]::GetFileName($File) + ' ' + ($Arguments -join ' ') + ' / 제한 ' + $TimeoutSeconds + '초')
     [void]$process.Start()
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
@@ -84,8 +85,17 @@ function Invoke-Tool([string]$File, [string[]]$Arguments, [string]$Directory = $
       Save-State
       if ((Test-Path -LiteralPath $StopFile) -or (Get-Date) -gt $deadline) {
         # Only terminate a process created by this runner, including its build children.
-        if ($env:OS -eq 'Windows_NT') { & "$env:SystemRoot\System32\taskkill.exe" /PID $process.Id /T /F 2>&1 | Out-Null }
-        else { $process.Kill() }
+        Write-Log ('명령 중지 또는 제한 시간 초과: ' + $TimeoutSeconds + '초')
+        try {
+          if ($env:OS -eq 'Windows_NT') { & "$env:SystemRoot\System32\taskkill.exe" /PID $process.Id /T /F 2>&1 | Out-Null }
+          else { $process.Kill() }
+        } catch { Write-Log ('프로세스 정리 중: ' + $_.Exception.Message) }
+        try {
+          if ($stdout.Wait(3000) -and $stderr.Wait(3000)) {
+            $partial = ($stdout.GetAwaiter().GetResult() + [Environment]::NewLine + $stderr.GetAwaiter().GetResult()).Trim()
+            if ($partial) { Write-Log $partial }
+          }
+        } catch { }
         throw '작업이 중지되었거나 제한 시간을 초과했습니다.'
       }
     }
@@ -132,7 +142,7 @@ function Start-Server([string]$Release, [string]$Revision, [int]$ServerPort, [st
   return $worker
 }
 function Wait-Healthy($Worker, [string]$Revision) {
-  $deadline = (Get-Date).AddSeconds(30)
+  $deadline = (Get-Date).AddSeconds(90)
   while ((Get-Date) -lt $deadline) {
     Pump-Logs $Worker
     if ($Worker.Process.HasExited) { throw ('새 서버가 종료됐습니다. 로그: ' + $Worker.Log) }
@@ -157,7 +167,7 @@ function Stop-Server($Worker) {
 }
 function Copy-Data([string]$Destination) {
   New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-  foreach ($name in @('restaurants.json','settings.json','history.jsonl','chat.jsonl','profiles.json','source-index.json')) {
+  foreach ($name in @('restaurants.json','settings.json','history.jsonl','chat.jsonl','profiles.json','source-index.json','sharing.json')) {
     $source = Join-Path $DataDir $name
     if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination (Join-Path $Destination $name) }
   }
@@ -167,9 +177,9 @@ function Deploy-Revision([string]$Revision) {
   $release = Join-Path (Join-Path $Deploy 'releases') $attempt
   Set-Phase 'building' ('새 버전 검사 시작: ' + $Revision)
   [void](Invoke-Tool $Git @('worktree','add','--detach',$release,$Revision))
-  [void](Invoke-Tool $Node @($NpmCli,'ci','--no-audit','--no-fund') $release 300)
-  [void](Invoke-Tool $Node @($NpmCli,'test') $release 300)
-  [void](Invoke-Tool $Node @($NpmCli,'run','build') $release 300)
+  [void](Invoke-Tool $Node @($NpmCli,'ci','--no-audit','--no-fund') $release 900)
+  [void](Invoke-Tool $Node @($NpmCli,'test') $release 900)
+  [void](Invoke-Tool $Node @($NpmCli,'run','build') $release 900)
   $smokeData = Join-Path (Join-Path $Deploy 'smoke') $attempt
   Copy-Data $smokeData
   $candidate = $null
