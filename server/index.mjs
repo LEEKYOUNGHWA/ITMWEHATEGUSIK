@@ -9,6 +9,7 @@ import { Store, readJson, readLines, loadRestaurants, validateRestaurants, creat
 
 import { eligible, distanceKm, validRadius } from '../shared/places.mjs'
 import { importInWorker } from './source.mjs'
+import { validateSharing } from '../shared/sharing.mjs'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, 'data')
 const catalogFile = path.resolve(process.env.RESTAURANTS_FILE || path.join(dataDir, 'restaurants.json'))
@@ -105,6 +106,16 @@ server.on('request', async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     res.setHeader('X-Content-Type-Options', 'nosniff')
     if (url.pathname === '/api/health') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ ok: true, online: people().length, port: server.address()?.port, revision: process.env.APP_REVISION || null })) }
+    if (url.pathname === '/api/sharing-config' || url.pathname.startsWith('/api/results/')) {
+      res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json; charset=utf-8')
+      if(req.method!=='GET'){res.statusCode=405;res.setHeader('Allow','GET');return res.end(JSON.stringify({error:'GET only'}))}
+      if(url.pathname==='/api/sharing-config')return res.end(JSON.stringify(validateSharing(await readJson(path.join(dataDir,'sharing.json'),{}))))
+      let id
+      try{id=decodeURIComponent(url.pathname.slice('/api/results/'.length))}catch{res.statusCode=400;return res.end(JSON.stringify({error:'Invalid result ID'}))}
+      const result=history.find(row=>row.id===id)
+      if(!result){res.statusCode=404;return res.end(JSON.stringify({error:'Result not found'}))}
+      return res.end(JSON.stringify(result))
+    }
     if (url.pathname === '/api/state') { res.setHeader('Cache-Control', 'no-store'); res.setHeader('Content-Type', 'application/json; charset=utf-8'); return res.end(JSON.stringify(snapshot())) }
     if (url.pathname === '/api/places' || url.pathname === '/api/places/map') {
       res.setHeader('Cache-Control', 'no-store'); res.setHeader('Content-Type', 'application/json; charset=utf-8')
