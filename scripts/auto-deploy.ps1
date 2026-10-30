@@ -220,7 +220,7 @@ if ($Action -eq 'Status') {
   $state = Read-State
   if ($null -eq $state) { Write-Host '자동 배포를 아직 실행하지 않았습니다.'; exit }
   $runner = Get-Process -Id $state.runnerPid -ErrorAction SilentlyContinue
-  $alive = $null -ne $runner -and [math]::Abs(($runner.StartTime.ToUniversalTime() - [datetime]$state.startedAt).TotalSeconds) -lt 10
+  $alive = $null -ne $runner -and [math]::Abs(($runner.StartTime.ToUniversalTime() - ([datetime]$state.startedAt).ToUniversalTime()).TotalSeconds) -lt 10
   Write-Host ('감시 프로세스 실행 중: ' + $alive)
   $state | Format-List
   Write-Host ('로그: ' + (Join-Path $Deploy 'deploy.log'))
@@ -237,7 +237,7 @@ if ($Action -eq 'Start') {
   $existing = Read-State
   if ($null -ne $existing) {
     $runner = Get-Process -Id $existing.runnerPid -ErrorAction SilentlyContinue
-    if ($null -ne $runner -and [math]::Abs(($runner.StartTime.ToUniversalTime() - [datetime]$existing.startedAt).TotalSeconds) -lt 10) { Write-Host '이미 자동 배포가 실행 중입니다. npm run auto:status로 확인하세요.'; exit }
+    if ($null -ne $runner -and [math]::Abs(($runner.StartTime.ToUniversalTime() - ([datetime]$existing.startedAt).ToUniversalTime()).TotalSeconds) -lt 10) { Write-Host '이미 자동 배포가 실행 중입니다. npm run auto:status로 확인하세요.'; exit }
   }
   $arguments = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-Action','Run','-Branch',$Branch,'-IntervalSeconds',[string]$IntervalSeconds,'-Port',[string]$Port)
   $argumentLine = (($arguments | ForEach-Object { Quote-Argument $_ }) -join ' ')

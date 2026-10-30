@@ -66,3 +66,6 @@
 - npm_node_execpath를 우선하여 npm과 동일한 Node 런타임을 사용한다.
 - .deploy/verification-20261030-101501의 독립 로컬 Git 저장소와 3109번 포트에서 최초 배포, 임시 포트 smoke, 테스트 실패 시 기존 서버 유지, 강제 재시도, 새 서버 기동 실패 시 이전 버전 복구, 데이터 해시 보존, 감시·서버 중지 모두 통과했다.
 - 실제 운영 시작 여부는 .deploy/state.json과 /api/health로 별도 확인한다. 검증 저장소와 로그는 Git 제외한다.
+
+- 실제 자동 배포 전환 완료: runner PID 25656, 서비스 3000번, activeRevision 9308e88, 15분 간격. 실제 설치·15개 테스트·빌드·임시 포트 smoke·운영 기동 및 즉시 원격 재확인 통과. 운영 후보·source-index 해시와 채팅·추첨 이력 prefix 보존 확인. 최초 백업은 .deploy/backups/pre-auto-20261030-101904.
+- 상태 명령의 실행 여부 비교에서 UTC/한국 시간 혼용으로 false가 표시되어 양쪽을 UTC로 비교하도록 보완했다. 실제 실행 상태는 PID, heartbeat와 HTTP health로 확인한다.
