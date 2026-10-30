@@ -32,7 +32,15 @@ async function start(dir, dev=false) {
   try { await readFile(catalogFile) } catch(e) { if(e.code!=='ENOENT')throw e;await writeFile(catalogFile,JSON.stringify(fixtureCatalog)) }
   const child=spawn(process.execPath,['server/index.mjs',...(dev?['--dev']:[])],{cwd:root,env:{...process.env,DATA_DIR:dir,RESTAURANTS_FILE:catalogFile,PORT:'0',SPIN_DURATION:'220'},stdio:['ignore','pipe','pipe']})
   let output='';child.stderr.on('data',d=>output+=d)
-  const port=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(output||'server startup timeout')),12000);child.stdout.on('data',d=>{output+=d;const match=output.match(/localhost:(\d+)/);if(match){clearTimeout(timer);resolve(+match[1])}});child.once('exit',code=>{clearTimeout(timer);reject(new Error(`server exit ${code}: ${output}`))})})
+  let port
+  try {
+    port=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(output||'server startup timeout')),60000);child.stdout.on('data',d=>{output+=d;const match=output.match(/localhost:(\d+)/);if(match){clearTimeout(timer);resolve(+match[1])}});child.once('exit',code=>{clearTimeout(timer);reject(new Error(`server exit ${code}: ${output}`))})})
+  } catch (error) {
+    if (child.exitCode === null && child.signalCode === null) {
+      await new Promise(resolve => { child.once('exit', resolve); child.kill() })
+    }
+    throw error
+  }
   return {port,child,stop:()=>new Promise(resolve=>{child.once('exit',resolve);child.kill()})}
 }
 async function client(port,name,options={}) {

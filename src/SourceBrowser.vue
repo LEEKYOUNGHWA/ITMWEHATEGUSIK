@@ -27,7 +27,8 @@ onBeforeUnmount(()=>{clearTimeout(timer);controller?.abort()})
     <div class="catalog-list-heading"><h2>주변 음식점 · 카페 전체</h2><button :disabled="!connected||sourceStatus?.busy||saving" @click="emit('reload')">{{sourceStatus?.busy?'원본 읽는 중…':'원본 다시 읽기'}}</button></div>
     <p class="field-help">반경 2km 안의 모든 음식업을 보여줍니다. 노출을 켜면 해당 방에 등록되고, 현재 반경 안에서 추첨에 참여해요. 전체 랜덤은 미노출도 포함합니다.</p>
     <p v-if="sourceStatus?.ready" class="field-help">원본 {{sourceStatus.rows?.toLocaleString()}}건 → 주변 {{sourceStatus.count?.toLocaleString()}}곳 · 적용 {{new Date(sourceStatus.importedAt).toLocaleString('ko-KR')}}</p>
-    <p v-else class="catalog-warning">원본을 data/source/seoul.csv에 넣은 뒤 ‘원본 다시 읽기’를 눌러주세요.</p>
+    <p v-else class="catalog-warning">원본을 {{sourceStatus?.development?'.dev-data/source/seoul.csv':'data/source/seoul.csv'}}에 넣은 뒤 ‘원본 다시 읽기’를 눌러주세요.</p>
+    <p v-if="sourceStatus?.development" class="field-help">개발 환경입니다. 초기 [개발샘플] 가게는 가상 데이터이며 운영 목록과 분리되어 있습니다.</p>
     <div class="source-filters">
       <input v-model="query" placeholder="가게 이름 · 주소 · 업종 검색" aria-label="가게 검색">
       <select v-model="roomFilter" aria-label="가게 방 필터"><option value="all">전체 업종</option><option value="coffee">커피방 업종</option><option value="lunch">점심방 업종</option></select>

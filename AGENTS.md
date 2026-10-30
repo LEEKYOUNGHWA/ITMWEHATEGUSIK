@@ -1,3 +1,25 @@
+# 사람과 AI가 함께 따르는 현재 작업 규칙
+
+이 절이 아래 과거 인계보다 우선한다. 실행·브랜치·데이터 절차는 README의 개발 가이드를 따른다.
+
+## 브랜치와 배포
+
+- 공유 서비스는 GitHub main을 .deploy/releases에서 자동 배포하며 3000번을 사용한다. 미커밋 로컬 코드는 서비스에 반영되지 않는다.
+- 사람과 AI 모두 codex/작업명 브랜치에서 개발한다. 예: codex/catalog-search. 기존의 적절한 작업 브랜치는 재사용한다.
+- 시작 전 git branch --show-current, git status --short, git diff로 기존 변경을 확인한다. 사용자 변경을 보존하고 작업 파일만 스테이징한다. config/restaurants.json의 기존 사용자 변경을 임의로 포함하지 않는다.
+- 깨끗한 폴더에서 새 작업을 시작할 때만 main 전환 → git pull --ff-only origin main → git switch -c codex/작업명 순서를 따른다. 미커밋 변경을 임의의 reset/clean/복구/stash로 지우거나 숨기지 않는다.
+- 작업 브랜치 푸시는 서비스 배포가 아니다. main 병합·푸시가 배포를 유발한다. 커밋·푸시·main 병합은 사용자가 요청한 범위를 따른다.
+- 일반 개발을 위해 3000번 서버나 자동 배포 감시를 종료·재시작하지 않는다.
+
+## 로컬 개발과 원본 없는 실행
+
+- npm ci 후 npm run dev로 실행한다. scripts/dev-local.mjs가 PORT=3001, DATA_DIR=.dev-data, RESTAURANTS_FILE=.dev-data/restaurants.json을 자동 지정한다. 접속은 http://localhost:3001 이다.
+- npm start 또는 node server/index.mjs --dev를 개발 실행의 대체 명령으로 사용하지 않는다. 3000번/운영 데이터 기본값을 사용할 수 있다.
+- 실제 서울 CSV와 운영 data는 새 체크아웃의 개발·테스트·빌드에 필요하지 않다. 첫 개발 실행은 config/dev-seoul.csv의 가상 가게 7곳으로 개발 원본·가공 목록·커피/점심 후보를 만든다. 실제 업소 자료라고 설명하지 않는다.
+- 기존 .dev-data 파일은 재실행 시 덮어쓰지 않는다. 실제 자료·대용량 검증에만 개발용 CSV 사본을 .dev-data/source/seoul.csv에 준비한다. 운영 파일을 테스트에 사용하지 않는다.
+- .dev-data, data, .deploy는 커밋·푸시하지 않는다. 원본·운영 데이터 없이 실행되는지 확인하고 변경에 맞는 테스트와 빌드를 수행한다.
+- 아래 미실행 등의 설명은 과거 기록이다. 현재 자동 배포 상태는 .deploy/state.json과 npm run auto:status로 확인한다.
+
 ## 현재 데이터 연동 작업 (2026-10-29)
 
 - 서울 원본을 다운로드 폴더에서 프로젝트 `data/source/seoul.csv`로 이동했다. 원본 301,889,640바이트, 554,092행. 초기 `data/source-index.json` 생성 완료: 2km 음식업 5,365곳, 기본 카페 870곳 / 점심 2,783곳. 모두 Git 제외.

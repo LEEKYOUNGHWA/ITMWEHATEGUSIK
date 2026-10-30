@@ -2,39 +2,74 @@
 
 Vue 3 + Vite + Node.js + WebSocket으로 만든 사내 모임방입니다. 상단 탭 순서는 **커피방 → 점심방 → 정보등록방**입니다. 커피·점심의 후보와 돌림판은 따로 관리하고, 선정 이력·채팅·사용자 정보는 공용으로 사용합니다.
 
-## 실행 / 종료
+## 개발 가이드 — 사람과 AI 공통
 
-이 PC에는 기존 Node 실행 파일을 재사용한 로컬 실행 환경을 `C:\Users\rudgh\AppData\Local\lunch-node\bin`에 준비했습니다. 사용자 PATH도 등록했습니다. **새 PowerShell/터미널에서** 실행하세요. 기존 VS Code 터미널에서 명령이 안 잡히면 VS Code까지 다시 열거나 아래 PATH 설정을 한 번 실행하세요.
+### 포트·브랜치·데이터
 
-```powershell
-$env:Path = "$env:LOCALAPPDATA\lunch-node\bin;$env:Path"
-cd "C:\Users\rudgh\Documents\GS강서타워 점심 돌림판"
+| 용도 | 브랜치 / 코드 | 포트 | 데이터 | 명령 |
+| --- | --- | --- | --- | --- |
+| 공유 서비스 | GitHub `main` → `.deploy/releases` | **3000** | `data/` | 배포 담당 PC의 `npm run auto:start` |
+| 로컬 개발 | **`codex/작업명`** → 현재 작업 폴더 | **3001** | **`.dev-data/`** | **`npm run dev`** |
+
+사람과 AI 모두 `codex/catalog-search`처럼 작업 내용이 드러나는 브랜치에서 개발합니다. `main`은 서비스 기준 브랜치입니다. 작업 브랜치 푸시는 서비스에 반영되지 않고, `main`에 병합·푸시하면 자동 배포가 기본 15분 간격으로 확인해 설치·테스트·빌드·기동 검사 후 3000번에 반영합니다.
+
+### 처음 받은 사람: 원본 파일 없이 시작하기
+
+Node 22.12 이상(권장: 24)과 Git을 준비하고 실행합니다. `my-task`는 작업 이름으로 바꾸세요.
+
+```sh
+git clone https://github.com/LEEKYOUNGHWA/ITMWEHATEGUSIK.git
+cd ITMWEHATEGUSIK
+git switch -c codex/my-task
+npm ci
 npm run dev
 ```
 
-평소에는 폴더에서 `npm run dev`만 실행하면 됩니다. Vue 화면과 공유 서버가 함께 켜지고 코드 수정도 바로 반영됩니다. 종료는 **실행한 터미널에서 Ctrl+C**입니다. 별도의 백그라운드 서비스나 부팅 자동 실행은 등록하지 않았습니다. 이 창을 닫거나 PC를 끄면 다른 사람도 접속할 수 없습니다.
+이미 받은 저장소라면 clone을 반복하지 않고 해당 프로젝트 폴더를 사용합니다. 이 PC에서 Node 명령이 안 잡히면 새 PowerShell에서 `$env:Path = "$env:LOCALAPPDATA\lunch-node\bin;$env:Path"`를 먼저 실행합니다.
 
-다른 PC로 프로젝트를 복사할 때에는 Node 22.12 이상(권장: 24)을 설치하고 최초 한 번 아래 명령을 실행합니다.
+접속은 **http://localhost:3001**입니다. `npm run dev`가 3001번과 `.dev-data/`를 자동 지정하므로 환경변수를 따로 설정할 필요가 없습니다. 터미널에 운영 환경변수가 남아 있어도 개발은 분리된 경로를 사용합니다. 화면(Vue·CSS) 수정은 자동 반영됩니다. server·scripts·샘플 초기화 코드를 수정했다면 개발 서버를 종료하고 다시 실행하세요. 종료는 실행 터미널에서 **Ctrl+C**이며, 별도 프로세스의 3000번 서비스는 계속 동작합니다.
 
-```powershell
-npm install
+**서울 원본 CSV와 운영 data 폴더는 개발·테스트·빌드에 필요하지 않습니다.** 첫 개발 실행에서 다음 파일을 자동 준비합니다.
+
+- `config/dev-seoul.csv`: 저장소에 포함된 가상 가게 7곳. 모두 `[개발샘플]` 표시가 있으며 실제 업소 자료가 아닙니다.
+- `.dev-data/source/seoul.csv`와 `source-index.json`: 샘플 사본과 검색용 가공 목록.
+- `.dev-data/restaurants.json`: 커피·점심 각 2곳의 등록 후보. 기본 추첨, 전체 검색, 미노출 포함 랜덤, 반경, 원본 다시 읽기를 개발할 수 있습니다.
+- 개발 채팅·프로필·설정·이력도 `.dev-data/`에 저장합니다. 재실행 시 기존 개발 파일은 덮어쓰지 않습니다.
+
+실제 서울 자료의 업소 수·분포나 대용량 성능은 샘플만으로 검증할 수 없습니다. 해당 작업에만 개발용 원본 사본을 `.dev-data/source/seoul.csv`에 넣고 개발 화면의 ‘원본 다시 읽기’를 사용하세요. 가공 목록도 따로 복사한다면 서버를 종료한 상태에서 `.dev-data/source-index.json`에 넣고, CSV와 같은 자료의 목록인지 확인하세요. 원본 다시 읽기는 CSV 기준으로 목록을 다시 만듭니다.
+
+`.dev-data/`, 운영 `data/`, `.deploy/`는 Git에서 제외합니다. 운영 파일을 개발 테스트에 사용하지 않습니다. `npm start`는 수동 서비스 실행용이므로 개발에는 `npm run dev`를 사용하세요.
+
+### 기존 작업자가 새 작업을 시작할 때
+
+```sh
+git branch --show-current
+git status --short
+```
+
+기존에 해당 작업용 `codex/...` 브랜치가 있으면 이어서 사용합니다. 사용자 변경이 남아 있으면 내용을 구분해 보존하고, 임의로 reset·clean·복구·stash하지 않습니다. **작업 폴더가 깨끗하고 새 작업을 시작할 때만** 다음 순서로 진행합니다.
+
+```sh
+git switch main
+git pull --ff-only origin main
+git switch -c codex/my-task
+npm ci
 npm run dev
 ```
 
-화면을 빌드해서 서비스하려면:
+### 검증·공유·서비스 반영
 
-```powershell
-npm run build
-npm start
-```
+기능 변경은 `npm test`, `npm run build`와 3001번의 해당 흐름으로 확인합니다. 문서만 수정했다면 내용과 `git diff --check`를 확인합니다. 테스트는 임시 가상 데이터를 사용하므로 실제 CSV 없이 실행됩니다.
 
-개발 실행과 빌드 실행은 같은 3000번 포트를 쓰므로 동시에 실행하지 마세요. 현재 어느 쪽이 켜졌는지는 해당 터미널의 실행 명령으로 확인할 수 있습니다. 브라우저 http://localhost:3000/api/health 에서 서버 응답 여부도 확인할 수 있습니다.
+커밋 전 `git diff`와 `git status --short`로 확인하고 **작업 파일만 지정하여** 스테이징합니다. 특히 `config/restaurants.json`의 사용자 변경을 별도 요청 없이 포함하지 않습니다. 작업 브랜치에서 커밋한 다음 `git push -u origin HEAD`로 공유하고, GitHub에서 `main` 대상 PR을 검토·병합합니다. `main` 병합·푸시는 서비스 배포를 유발하므로 개발 브랜치 푸시와 구분하세요.
+
+AI도 먼저 `AGENTS.md`를 읽고 같은 절차를 따릅니다. 일반 개발을 위해 3000번 서버나 감시 프로세스를 종료·재시작하지 않습니다. 커밋·푸시·main 병합은 사용자가 요청한 범위를 따릅니다.
 
 ## 로컬 자동 배포 (PowerShell)
 
-자동 배포 스크립트는 준비했으며 **아직 실행하지 않았습니다.** 자동 감시와 Git 업데이트 루프, 자동 실행 등록, 기존 서버 종료·재시작은 아직 실행하지 않았습니다. 준비 코드는 사용자 요청으로 커밋·푸시하는 대상입니다. PowerShell 문법과 서버 파일의 JavaScript 문법만 확인했습니다. 실제 설치→테스트→교체→실패 복구 검증은 남아 있습니다.
+2026-10-30 사용자 요청으로 이 PC에서 **자동 배포를 시작했습니다.** 실제 설치·테스트·빌드·임시 포트 기동과 운영 전환을 확인했고, 별도 로컬 저장소에서 실패·재시도·복구·데이터 보존·중지를 검증했습니다. 현재 실행 상태는 `npm run auto:status`로 확인하세요. Windows 부팅 자동 실행은 등록하지 않았습니다.
 
-### 최초 실행 순서
+### 새 환경에서 최초 실행하는 순서
 
 1. 원격 main에 이 자동 배포 코드가 포함되어 있는지 확인하세요. 첫 배포 대상에도 관리용 종료 신호와 health revision이 있어야 합니다. 이 변경 전 커밋은 검사에서 멈추게 되어 있습니다.
 2. 기존에 3000번으로 실행한 npm run dev/start 터미널에서 Ctrl+C로 종료하세요. 스크립트는 다른 프로세스의 서버를 임의로 끄지 않습니다.
@@ -62,7 +97,7 @@ npm run auto:stop     # 검사와 자동 서버 중지 요청
 
 ### 데이터와 로그
 
-자동 배포 모드에서는 프로젝트의 data 폴더를 버전 간 공통으로 사용합니다. 이름·IP·채팅·이력은 기존 파일을 그대로 사용합니다. 후보 정보는 최초 실행 때 config/restaurants.json을 data/restaurants.json으로 한 번 복사하며, 이후 정보등록방의 저장은 data/restaurants.json에 기록합니다. 새 코드가 배포되어도 이 파일을 초기값으로 다시 덮어쓰지 않습니다. 일반 npm run dev/start도 같은 data/restaurants.json을 사용합니다. 이 파일이 없는 최초 시작 때만 config/restaurants.json에서 복사합니다.
+자동 배포 모드에서는 프로젝트의 data 폴더를 버전 간 공통으로 사용합니다. 이름·IP·채팅·이력은 기존 파일을 그대로 사용합니다. 후보 정보는 최초 실행 때 config/restaurants.json을 data/restaurants.json으로 한 번 복사하며, 이후 정보등록방의 저장은 data/restaurants.json에 기록합니다. 새 코드가 배포되어도 이 파일을 초기값으로 다시 덮어쓰지 않습니다. npm run dev는 3001번과 .dev-data를 자동 사용합니다. npm start는 기본 운영 data를 사용하므로 개발에는 사용하지 마세요. 후보 파일이 없는 최초 시작 때만 config/restaurants.json에서 복사합니다.
 
 - .deploy/state.json: 감시 PID, 단계, 실제 운영 커밋과 경로, 오류
 - .deploy/deploy.log: 배포 단계와 설치·테스트·빌드 결과
@@ -84,13 +119,7 @@ npm run auto:stop     # 검사와 자동 서버 중지 요청
 - 회사의 무선 단말 간 통신 차단/VLAN 정책은 Windows 방화벽과 별개입니다. 호스트에서 내부 IP 접속이 되는데 다른 PC에서 안 되면 사내 네트워크 정책을 확인하세요.
 - 공유기 외부 포트포워딩은 설정하지 않습니다. 로그인 없이 사내망에서 사용하는 작은 앱입니다.
 
-포트 변경은 실행할 터미널에서 설정합니다.
-
-```powershell
-$env:PORT = "3100"
-npm run dev
-
-```
+로컬 개발 접속은 **http://localhost:3001**입니다. 위 개발 가이드대로 작업 브랜치에서 npm run dev를 실행하세요.
 
 ## 식당 / 좌표 관리
 

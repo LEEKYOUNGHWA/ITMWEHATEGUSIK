@@ -36,7 +36,7 @@ function markManual() { manuallyMoved=true }
 function overview(animate=true) {
   if (!map) return
   winnerMarker?.remove();winnerMarker=null
-  const points = L.circle(tower,{radius:Math.max(100,props.radiusKm*1000)}).getBounds()
+  const points = L.latLng(tower).toBounds(Math.max(100,props.radiusKm*1000)*2)
   for (const marker of markers.values()) marker.getElement()?.classList.remove('winner-marker')
   const area=visibleArea()
   const options={maxZoom:16,paddingTopLeft:[area.left,area.top],paddingBottomRight:[24,area.size.y-area.bottom],animate:animate&&!reduce(),duration:1.2}

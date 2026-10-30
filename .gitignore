@@ -11,3 +11,6 @@ data/
 # Public source CSV and generated local indexes (never upload)
 /data/source/
 /data/source-index.json
+
+# Isolated local development data
+/.dev-data/

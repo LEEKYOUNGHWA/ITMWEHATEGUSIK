@@ -63,7 +63,7 @@ function sample(rows, count = 12) {
   for (let i = 0; i < Math.min(count, result.length); i++) { const j = randomInt(i, result.length); [result[i], result[j]] = [result[j], result[i]] }
   return result.slice(0, count)
 }
-const sourceStatus = () => ({ ...sourceIndex.metadata, busy: sourceBusy, ready: !!sourceIndex.metadata })
+const sourceStatus = () => ({ ...sourceIndex.metadata, busy: sourceBusy, ready: !!sourceIndex.metadata, development: process.env.APP_DEVELOPMENT === '1' })
 function roomView(key) {
   const rows=pool(key),preview=rooms[key].randomMode==='all'?rows.slice(0,12):rows
   return {...rooms[key],poolSize:rows.length,effectiveIds:preview.map(r=>r.id),previewRestaurants:preview,spin:withActor(rooms[key].spin),lastResult:withActor(rooms[key].lastResult)}
