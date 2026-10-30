@@ -32,7 +32,18 @@ function Save-State {
   $script:State.heartbeat = (Get-Date).ToUniversalTime().ToString('o')
   $temp = $StateFile + '.tmp'
   [IO.File]::WriteAllText($temp, ($script:State | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
-  Move-Item -LiteralPath $temp -Destination $StateFile -Force
+  # Readers and virus scanners can briefly hold the destination on Windows.
+  # Replace atomically and retry sharing violations without stopping the server.
+  for ($attempt = 0; $attempt -lt 20; $attempt++) {
+    try {
+      if ([IO.File]::Exists($StateFile)) { [IO.File]::Replace($temp, $StateFile, ($StateFile + '.previous')) }
+      else { [IO.File]::Move($temp, $StateFile) }
+      return
+    } catch [IO.IOException] {
+      if ($attempt -eq 19) { throw }
+      Start-Sleep -Milliseconds 100
+    }
+  }
 }
 function Set-Phase([string]$Phase, [string]$Message) {
   $script:State.phase = $Phase
@@ -239,7 +250,7 @@ $lock = $null
 try {
   $lock = [IO.File]::Open((Join-Path $Deploy 'runner.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
   $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
-  $Node = if ($nodeCommand) { $nodeCommand.Source } else { Join-Path $env:LOCALAPPDATA 'lunch-node\bin\node.exe' }
+  $Node = if ($env:npm_node_execpath -and (Test-Path -LiteralPath $env:npm_node_execpath)) { $env:npm_node_execpath } elseif ($nodeCommand) { $nodeCommand.Source } else { Join-Path $env:LOCALAPPDATA 'lunch-node\bin\node.exe' }
   if (-not (Test-Path -LiteralPath $Node)) { throw 'Node 실행 파일을 찾을 수 없습니다.' }
   $Git = (Get-Command git.exe -ErrorAction Stop).Source
   $npmCandidates = @($env:npm_execpath, (Join-Path (Split-Path -Parent $Node) 'node_modules\npm\bin\npm-cli.js'), (Join-Path (Split-Path -Parent $Node) '..\packages\node_modules\npm\bin\npm-cli.js'))
