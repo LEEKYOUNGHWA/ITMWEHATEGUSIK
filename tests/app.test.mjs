@@ -319,3 +319,32 @@ test('전체 랜덤은 많은 미노출 후보를 포함하고 표시 개수만 
     await a.wait('result')
   }finally{a?.ws.close();await app.stop()}
 }))
+
+
+test('공유 결과는 최근 500건 밖에서도 원본 식당 정보로 조회되고 재시작 뒤 유지된다',()=>temporary(async dir=>{
+  const rows=Array.from({length:502},(_,i)=>({id:'shared-'+i,room:'lunch',at:1700000000000+i,restaurant:{id:'fixture0',name:'추첨 당시 식당 '+i,description:'당시 설명'},actor:{name:'테스트',emoji:'🧑‍🍳'}}))
+  await writeFile(path.join(dir,'history.jsonl'),rows.map(row=>JSON.stringify(row)).join('\n')+'\n')
+  await writeFile(path.join(dir,'sharing.json'),JSON.stringify({teamsUrl:'https://teams.microsoft.com/l/chat/19%3Atest%40thread.v2/conversations',publicOrigin:'http://10.0.0.1:3000'}))
+  let app=await start(dir)
+  try{
+    let base='http://127.0.0.1:'+app.port
+    assert.equal((await (await fetch(base+'/api/state')).json()).history.length,500)
+    const response=await fetch(base+'/api/results/shared-0');assert.equal(response.status,200);assert.match(response.headers.get('cache-control'),/no-store/)
+    assert.deepEqual(await response.json(),rows[0])
+    assert.equal((await fetch(base+'/api/results/missing')).status,404)
+    assert.equal((await fetch(base+'/api/results/%E0%A4%A')).status,400)
+    assert.equal((await fetch(base+'/api/results/shared-0',{method:'POST'})).status,405)
+    assert.equal((await fetch(base+'/data/sharing.json')).status,404)
+    assert.equal((await (await fetch(base+'/api/sharing-config')).json()).publicOrigin,'http://10.0.0.1:3000')
+    await app.stop();app=await start(dir);base='http://127.0.0.1:'+app.port
+    assert.deepEqual(await (await fetch(base+'/api/results/shared-0')).json(),rows[0])
+  }finally{await app.stop()}
+}))
+
+test('공유 설정은 Teams HTTPS 링크만 허용하고 결과 링크는 ID를 안전하게 인코딩한다',async()=>{
+  const {validateSharing,resultLink,resultText}=await import('../shared/sharing.mjs')
+  for(const teamsUrl of ['javascript:alert(1)','https://teams.microsoft.com.evil.test/l/chat/a','http://teams.microsoft.com/l/chat/a','https://teams.microsoft.com@evil.test/l/chat/a'])assert.equal(validateSharing({teamsUrl}).teamsUrl,'')
+  assert.equal(new URL(resultLink('http://10.0.0.1:3000','a&b#c')).searchParams.get('result'),'a&b#c')
+  const text=resultText({room:'coffee',at:1700000000000,restaurant:{name:'카페',address:'주소'}},'http://10.0.0.1/?result=a')
+  assert.match(text,/커피 추첨 결과/);assert.match(text,/주소: 주소/);assert.match(text,/result=a/);assert.ok(!text.includes('undefined'))
+})

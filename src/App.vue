@@ -3,6 +3,7 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } 
 import Wheel from './Wheel.vue'
 import BackgroundMap from './BackgroundMap.vue'
 import CatalogEditor from './CatalogEditor.vue'
+import ResultShare from './ResultShare.vue'
 
 const emojis=['🧑‍🚀','🧑‍🍳','🧑‍💻','🧑‍🎨','🧑‍🚒','🧙','🥷','👩‍🔬','👨‍🌾','🦸','🧝','🕵️']
 const viewOptions=[{id:'coffee',label:'커피방',icon:'☕'},{id:'lunch',label:'점심방',icon:'🍚'},{id:'manage',label:'정보등록방',icon:'📝'}]
@@ -133,7 +134,7 @@ onBeforeUnmount(()=>{destroyed=true;clearTimeout(reconnectTimer);clearTimeout(no
     <header class="topbar">
 
       <nav class="room-tabs" aria-label="GS강서타워 모임방 선택"><button v-for="view in viewOptions" :key="view.id" :class="{active:activeView===view.id}" :aria-current="activeView===view.id?'page':undefined" @click="chooseView(view.id)">{{view.icon}} {{view.label}}</button></nav>
-      <div class="top-actions"><span class="status" :class="{online:connected}"><i></i>{{connectionText}}</span><button class="icon-button" @click="toggleTheme" :aria-label="`화면 테마: ${theme}`">{{theme==='dark'?'🌙':theme==='light'?'☀️':'◐'}}</button><button v-if="activeView!=='manage'" class="wheel-toggle" :aria-expanded="wheelVisible" aria-controls="lunch-wheel" @click="toggleWheel"><span class="toggle-full">{{wheelVisible?'돌림판 숨기기':'돌림판 보기'}}</span><span class="toggle-short">{{wheelVisible?'🎡 숨김':'🎡 보기'}}</span></button><button class="panel-toggle" :aria-expanded="panelOpen" aria-controls="lunch-records" @click="setPanelOpen(!panelOpen)">{{panelOpen?'기록 접기 →':'← 공용 기록'}}</button></div>
+      <div class="top-actions"><ResultShare v-if="activeView!=='manage'" :result="roomState.spin?null:roomState.lastResult"/><span class="status" :class="{online:connected}"><i></i>{{connectionText}}</span><button class="icon-button" @click="toggleTheme" :aria-label="`화면 테마: ${theme}`">{{theme==='dark'?'🌙':theme==='light'?'☀️':'◐'}}</button><button v-if="activeView!=='manage'" class="wheel-toggle" :aria-expanded="wheelVisible" aria-controls="lunch-wheel" @click="toggleWheel"><span class="toggle-full">{{wheelVisible?'돌림판 숨기기':'돌림판 보기'}}</span><span class="toggle-short">{{wheelVisible?'🎡 숨김':'🎡 보기'}}</span></button><button class="panel-toggle" :aria-expanded="panelOpen" aria-controls="lunch-records" @click="setPanelOpen(!panelOpen)">{{panelOpen?'기록 접기 →':'← 공용 기록'}}</button></div>
     </header>
     <div class="radius-toolbar glass">
       <label for="radius-slider">{{roomTitle}} 반경 <b>{{Number(radiusDraft).toFixed(1)}}km</b></label>
