@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { WebSocket } from 'ws'
 import { createSpin, pickedId, loadRestaurants, Store, readLines, IpProfiles, normalizeIp } from '../server/model.mjs'
+const fixtureCatalog=Array.from({length:12},(_,i)=>({id:'fixture'+i,room:'lunch',name:'식당'+i,lat:37.520814+i*.00001,lng:126.88904}));
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')
 async function temporary(fn) { const dir=await mkdtemp(path.join(tmpdir(),'lunch-wheel-test-'));try { return await fn(dir) } finally { if(!path.resolve(dir).startsWith(path.resolve(tmpdir())+path.sep))throw new Error('unsafe temp path');await rm(dir,{recursive:true,force:true}) } }
 test('당첨 식당과 최종 돌림판 포인터가 2~30개 후보에서 일치한다',()=>{
@@ -28,7 +29,7 @@ test('파일 쓰기는 순서대로 저장하고 실패 후에도 다음 쓰기�
 }))
 async function start(dir, dev=false) {
   const catalogFile=path.join(dir,'restaurants.json')
-  try { await readFile(catalogFile) } catch(e) { if(e.code!=='ENOENT')throw e;await writeFile(catalogFile,await readFile(path.join(root,'config/restaurants.json'))) }
+  try { await readFile(catalogFile) } catch(e) { if(e.code!=='ENOENT')throw e;await writeFile(catalogFile,JSON.stringify(fixtureCatalog)) }
   const child=spawn(process.execPath,['server/index.mjs',...(dev?['--dev']:[])],{cwd:root,env:{...process.env,DATA_DIR:dir,RESTAURANTS_FILE:catalogFile,PORT:'0',SPIN_DURATION:'220'},stdio:['ignore','pipe','pipe']})
   let output='';child.stderr.on('data',d=>output+=d)
   const port=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(output||'server startup timeout')),12000);child.stdout.on('data',d=>{output+=d;const match=output.match(/localhost:(\d+)/);if(match){clearTimeout(timer);resolve(+match[1])}});child.once('exit',code=>{clearTimeout(timer);reject(new Error(`server exit ${code}: ${output}`))})})
@@ -155,7 +156,7 @@ test('커피·점심은 후보와 회전을 분리하고 채팅·이력 및 JSON
     const first=await b.wait('catalog',m=>m.requestId==='add-coffee-a')
     const coffeeA=first.restaurants.find(r=>r.name==='테스트카페A')
     assert.ok(coffeeA);assert.deepEqual(first.rooms.lunch.selectedIds,originalLunch)
-    b.send('catalog-save',{action:'upsert',version:1,requestId:'add-coffee-b',restaurant:{room:'coffee',name:'테스트카페B',lat:null,lng:null}})
+    b.send('catalog-save',{action:'upsert',version:1,requestId:'add-coffee-b',restaurant:{room:'coffee',name:'테스트카페B',lat:37.5207,lng:126.8893}})
     const second=await a.wait('catalog',m=>m.requestId==='add-coffee-b')
     const coffeeB=second.restaurants.find(r=>r.name==='테스트카페B')
     assert.equal(second.rooms.coffee.selectedIds.length,2)
@@ -195,7 +196,7 @@ test('커피·점심은 후보와 회전을 분리하고 채팅·이력 및 JSON
 }))
 
 test('기존 단일 점심방의 설정·이력·채팅을 두 방으로 전환해도 보존한다',()=>temporary(async dir=>{
-  const catalog=JSON.parse((await readFile(path.join(root,'config/restaurants.json'),'utf8')).replace(/^\uFEFF/,''))
+  const catalog=fixtureCatalog
   const selectedIds=catalog.filter(r=>(r.room||'lunch')==='lunch').slice(0,3).map(r=>r.id)
   await writeFile(path.join(dir,'settings.json'),JSON.stringify({selectedIds,angle:1.25,activeSpin:null}))
   const legacy={id:'legacy-result',restaurantId:catalog[0].id,restaurant:catalog[0],at:1700000000000,actor:{name:'기존사용자',emoji:'🧑‍🍳'}}
@@ -213,4 +214,108 @@ test('기존 단일 점심방의 설정·이력·채팅을 두 방으로 전환�
     app=await start(dir);const b=await client(app.port,'재시작');clients=[b]
     assert.equal(b.welcome.history.length,2);assert.equal(b.welcome.chats[0].id,'legacy-chat');assert.deepEqual(b.welcome.rooms.lunch.selectedIds,selectedIds)
   }finally{for(const p of clients)p.ws.close();if(app)await app.stop()}
+}))
+
+import { mkdir } from 'node:fs/promises'
+import { importSource, parseCsvRecord } from '../server/source.mjs'
+import { TOWER, distanceKm, eligible } from '../shared/places.mjs'
+const csvHeader=['상가업소번호','상호명','지점명','상권업종대분류코드','상권업종소분류코드','상권업종소분류명','도로명주소','경도','위도']
+const csvField=v=>'"'+String(v).replaceAll('"','""')+'"'
+function csvData(rows){return '\uFEFF'+[csvHeader,...rows].map(r=>r.map(csvField).join(',')).join('\r\n')+'\r\n'}
+const sourceRows=[
+ ['a','카페, "A"\n두번째 줄','','I2','I21201','카페','서울 A',TOWER.lng,TOWER.lat],
+ ['b','카페 B','','I2','I21201','카페','서울 B',TOWER.lng+.001,TOWER.lat],
+ ['c','식당 C','','I2','I20101','백반/한정식','서울 C',TOWER.lng,TOWER.lat+.001],
+ ['d','주점 D','','I2','I21104','요리 주점','서울 D',TOWER.lng,TOWER.lat],
+ ['far','먼 카페','','I2','I21201','카페','먼 주소',TOWER.lng,TOWER.lat+.1]
+]
+async function prepareCsv(dir,rows=sourceRows){await mkdir(path.join(dir,'source'),{recursive:true});await writeFile(path.join(dir,'source/seoul.csv'),csvData(rows))}
+test('서울 CSV의 BOM·쉼표·인용부호·줄바꿈, 업종과 2km 경계를 처리한다',()=>temporary(async dir=>{
+  assert.deepEqual(parseCsvRecord('"가,나","다""라"'),['가,나','다"라'])
+  assert.equal(parseCsvRecord('"열린 필드'),null)
+  await prepareCsv(dir)
+  const result=await importSource(path.join(dir,'source/seoul.csv'),path.join(root,'config/source-categories.json'))
+  assert.equal(result.metadata.rows,5);assert.equal(result.places.length,4);assert.equal(result.places.find(p=>p.sourceId==='a').name,'카페, "A"\n두번째 줄')
+  assert.equal(result.places.find(p=>p.sourceId==='d').room,null)
+  assert.equal(distanceKm(TOWER),0);assert.equal(eligible({...TOWER},0),true)
+  assert.equal(eligible({lat:null,lng:null},2),false);assert.equal(eligible({...TOWER,excluded:true},1),false);assert.equal(eligible({...TOWER,excluded:true},1,true),true)
+  assert.equal(eligible({...TOWER,sourceMissing:true},1,true),false)
+}))
+test('전체 목록 노출 체크, 전체 랜덤, 공유 반경, 원본 교체와 실패 보존',()=>temporary(async dir=>{
+  await writeFile(path.join(dir,'restaurants.json'),'[]');await prepareCsv(dir)
+  let app=await start(dir),clients=[]
+  try{
+    const a=await client(app.port,'가'),b=await client(app.port,'나');clients=[a,b]
+    a.send('source-reload',{requestId:'import-1'});a.send('source-reload',{requestId:'duplicate-import'})
+    await a.wait('error',m=>m.requestId==='duplicate-import'&&m.message.includes('이미'))
+    const imported=await b.wait('catalog',m=>m.catalogVersion===1)
+    assert.equal(imported.restaurants.length,0)
+    const state=()=>fetch('http://127.0.0.1:'+app.port+'/api/state').then(r=>r.json())
+    const list=()=>fetch('http://127.0.0.1:'+app.port+'/api/places?room=all').then(r=>r.json())
+    assert.equal((await list()).total,4)
+    for(const id of ['a','b']){
+      const row=(await list()).rows.find(r=>r.sourceId===id),version=(await state()).catalogVersion
+      a.send('catalog-save',{action:'upsert',version,requestId:'show-'+id,restaurant:{...row,excluded:false}})
+      await b.wait('catalog',m=>m.requestId==='show-'+id)
+    }
+    let snapshot=await state();assert.equal(snapshot.rooms.coffee.poolSize,2)
+    const coffee=snapshot.restaurants.find(r=>r.sourceId==='a')
+    a.send('catalog-save',{action:'upsert',version:snapshot.catalogVersion,requestId:'hide-a',restaurant:{...coffee,name:'내가 고친 이름',excluded:true,exclusionReason:'비쌈'}})
+    await b.wait('catalog',m=>m.requestId==='hide-a')
+    assert.equal((await state()).rooms.coffee.poolSize,1)
+    a.send('spin',{room:'coffee',requestId:'visible-too-few'});await a.wait('error',m=>m.message.includes('2곳'))
+    a.send('room-options',{room:'coffee',radiusKm:1,randomMode:'all'})
+    const all=await b.wait('room-options',m=>m.rooms.coffee.randomMode==='all')
+    assert.equal(all.rooms.coffee.poolSize,2);assert.equal(all.rooms.lunch.randomMode,'visible')
+    a.send('spin',{room:'coffee',requestId:'all-spin'})
+    const spin=await b.wait('spin',m=>m.room==='coffee')
+    assert.ok(spin.spin.ids.includes(coffee.id));assert.equal(spin.spin.poolSize,2)
+    a.send('room-options',{room:'coffee',radiusKm:0,randomMode:'all'})
+    await a.wait('error',m=>m.message.includes('회전'))
+    await b.wait('result',m=>m.room==='coffee')
+    a.send('room-options',{room:'coffee',radiusKm:0,randomMode:'all'})
+    await b.wait('room-options',m=>m.rooms.coffee.radiusKm===0)
+    assert.equal((await state()).rooms.coffee.poolSize,1)
+    a.send('room-options',{room:'coffee',radiusKm:3,randomMode:'all'});await a.wait('error',m=>m.message.includes('반경'))
+    await prepareCsv(dir,sourceRows.filter(r=>r[0]!=='a').concat([['new','새 카페','','I2','I21201','카페','새 주소',TOWER.lng,TOWER.lat]]))
+    a.send('source-reload',{requestId:'import-2'})
+    await b.wait('catalog',m=>m.catalogVersion===5)
+    snapshot=await state()
+    const preserved=snapshot.restaurants.find(r=>r.sourceId==='a')
+    assert.equal(preserved.name,'내가 고친 이름');assert.equal(preserved.excluded,true);assert.equal(preserved.exclusionReason,'비쌈');assert.equal(preserved.sourceMissing,true)
+    assert.ok(!(await list()).rows.find(r=>r.sourceId==='new').registered)
+    assert.equal(snapshot.history.length,1)
+    await writeFile(path.join(dir,'source/seoul.csv'),'잘못된,파일\n1,2')
+    a.send('source-reload',{requestId:'bad-source'});await a.wait('error',m=>m.requestId==='bad-source'&&m.message.includes('원본 적용 실패'))
+    assert.equal((await list()).total,5);assert.equal((await state()).catalogVersion,5)
+    for(const p of clients)p.ws.close();await app.stop();app=null
+    app=await start(dir);const restored=await client(app.port,'복원');clients=[restored]
+    assert.equal(restored.welcome.rooms.coffee.randomMode,'all');assert.equal(restored.welcome.rooms.coffee.radiusKm,0)
+    assert.equal(restored.welcome.history.length,1);assert.equal(restored.welcome.restaurants.find(r=>r.sourceId==='a').sourceMissing,true)
+  }finally{for(const p of clients)p.ws.close();if(app)await app.stop()}
+}))
+
+test('원본 필수 열·중복 업소번호 오류와 수기 좌표 없는 가게를 안전하게 처리한다',()=>temporary(async dir=>{
+  await prepareCsv(dir,[sourceRows[0],sourceRows[0]])
+  const parse=()=>importSource(path.join(dir,'source/seoul.csv'),path.join(root,'config/source-categories.json'))
+  await assert.rejects(parse(),/중복/)
+  await writeFile(path.join(dir,'source/seoul.csv'),'상호명,위도\n가게,37')
+  await assert.rejects(parse(),/필수 열/)
+  const boundary=(km)=>({...TOWER,lat:TOWER.lat+km/6371*180/Math.PI})
+  assert.ok(distanceKm(boundary(1.999))<2);assert.ok(distanceKm(boundary(2.001))>2)
+}))
+test('전체 랜덤은 많은 미노출 후보를 포함하고 표시 개수만 제한한다',()=>temporary(async dir=>{
+  await writeFile(path.join(dir,'restaurants.json'),'[]')
+  await prepareCsv(dir,Array.from({length:30},(_,i)=>['c'+i,'카페'+i,'','I2','I21201','카페','서울',TOWER.lng,TOWER.lat+i*.000001]))
+  const app=await start(dir);let a
+  try{
+    a=await client(app.port,'전체랜덤')
+    a.send('source-reload',{requestId:'many-import'});await a.wait('catalog',m=>m.catalogVersion===1)
+    a.send('room-options',{room:'coffee',radiusKm:1,randomMode:'all'})
+    const options=await a.wait('room-options');assert.equal(options.rooms.coffee.poolSize,30);assert.equal(options.rooms.coffee.effectiveIds.length,12)
+    a.send('spin',{room:'coffee',requestId:'many-spin'})
+    const {spin}=await a.wait('spin');assert.equal(spin.poolSize,30);assert.equal(spin.ids.length,12);assert.equal(new Set(spin.ids).size,12);assert.equal(pickedId(spin),spin.winnerId)
+    assert.equal(spin.restaurants.find(r=>r.id===spin.winnerId).name,spin.restaurant.name)
+    await a.wait('result')
+  }finally{a?.ws.close();await app.stop()}
 }))

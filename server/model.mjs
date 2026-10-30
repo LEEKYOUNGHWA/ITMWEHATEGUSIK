@@ -11,7 +11,7 @@ export async function readJson(file, fallback) {
 export const ROOM_IDS = ['coffee', 'lunch']
 export async function loadRestaurants(file) { return validateRestaurants(await readJson(file)) }
 export function validateRestaurants(rows) {
-  if (!Array.isArray(rows) || rows.length > 300) throw new Error('restaurants.json: 후보는 300개 이하의 배열이어야 합니다.')
+  if (!Array.isArray(rows) || rows.length > 10000) throw new Error('restaurants.json: 후보는 10000개 이하의 배열이어야 합니다.')
   const ids = new Set()
   return rows.map(r => {
     if (!r || typeof r.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(r.id) || ids.has(r.id) || typeof r.name !== 'string' || !r.name.trim()) throw new Error('후보 ID/이름 오류: ' + (r?.name || r?.id || '?'))
@@ -20,7 +20,7 @@ export function validateRestaurants(rows) {
     if (!ROOM_IDS.includes(room)) throw new Error(r.name + ': room은 coffee 또는 lunch여야 합니다.')
     const absent = r.lat == null && r.lng == null
     if (!absent && !(typeof r.lat === 'number' && typeof r.lng === 'number' && Number.isFinite(r.lat) && Number.isFinite(r.lng) && Math.abs(r.lat) <= 90 && Math.abs(r.lng) <= 180)) throw new Error(r.name + ': lat/lng를 모두 숫자로 입력하거나 모두 null로 두세요.')
-    const clean = { ...r, room, name: r.name.trim().slice(0,60), lat: absent ? null : r.lat, lng: absent ? null : r.lng }
+    const clean = { ...r, excluded: r.excluded === true, exclusionReason: String(r.exclusionReason || '').slice(0,200), room, name: r.name.trim().slice(0,60), lat: absent ? null : r.lat, lng: absent ? null : r.lng }
     for (const field of ['category','description','hours','address','source','coordinateNote','addressSource']) clean[field] = String(r[field] || '').slice(0,600)
     return clean
   })

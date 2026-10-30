@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import Wheel from './Wheel.vue'
 import BackgroundMap from './BackgroundMap.vue'
 import CatalogEditor from './CatalogEditor.vue'
@@ -11,8 +11,8 @@ function remember(key,value){try{localStorage.setItem(key,String(value))}catch{}
 function readProfile(){try{return JSON.parse(stored('lunch-profile','{}'))}catch{return {}}}
 const cached=readProfile(),initialView=stored('lunch-active-view','lunch')
 const profile=reactive({name:cached.name||'',emoji:emojis.includes(cached.emoji)?cached.emoji:emojis[Math.floor(Math.random()*emojis.length)]})
-const emptyRoom=()=>({selectedIds:[],angle:0,spin:null,lastResult:null})
-const state=reactive({restaurants:[],catalogVersion:0,rooms:{coffee:emptyRoom(),lunch:emptyRoom()},history:[],chats:[],people:[]})
+const emptyRoom=()=>({selectedIds:[],effectiveIds:[],previewRestaurants:[],poolSize:0,radiusKm:1,randomMode:'visible',angle:0,spin:null,lastResult:null})
+const state=reactive({restaurants:[],catalogVersion:0,rooms:{coffee:emptyRoom(),lunch:emptyRoom()},history:[],chats:[],people:[],sourceStatus:{ready:false,busy:false}})
 const activeView=ref(viewOptions.some(v=>v.id===initialView)?initialView:'lunch'),lastRoom=ref(initialView==='coffee'?'coffee':'lunch')
 const connected=ref(false),initialized=ref(false),hasRooms=ref(false),selfId=ref(''),serverOffset=ref(0),draft=ref(''),notice=ref(''),tab=ref('history')
 const panelOpen=ref(stored('lunch-records-open',String(matchMedia('(min-width:761px)').matches))==='true'),wheelVisible=ref(stored('lunch-wheel-visible','true')!=='false'),theme=ref(stored('lunch-theme','light'))
@@ -24,7 +24,21 @@ const roomState=computed(()=>state.rooms[currentRoom.value]||emptyRoom())
 const roomTitle=computed(()=>currentRoom.value==='coffee'?'커피방':'점심방')
 const roomIcon=computed(()=>currentRoom.value==='coffee'?'☕':'🍚')
 const roomRestaurants=computed(()=>state.restaurants.filter(r=>r.room===currentRoom.value))
-const mapRestaurants=computed(()=>activeView.value==='manage'?state.restaurants:roomRestaurants.value)
+const mapPoints=ref([]),radiusDraft=ref(1)
+const mapRestaurants=computed(()=>mapPoints.value)
+const wheelRestaurants=computed(()=>roomState.value.spin?.restaurants||roomState.value.previewRestaurants||roomRestaurants.value)
+watch(()=>[currentRoom.value,roomState.value.radiusKm],()=>radiusDraft.value=roomState.value.radiusKm??1,{immediate:true})
+let mapController
+async function loadMap(){
+  if(!initialized.value)return
+  mapController?.abort();mapController=new AbortController()
+  try{const response=await fetch('/api/places/map?'+new URLSearchParams({room:activeView.value==='manage'?'all':currentRoom.value,radius:String(activeView.value==='manage'?2:roomState.value.radiusKm)}),{signal:mapController.signal})
+    if(response.ok)mapPoints.value=await response.json()
+  }catch(e){if(e.name!=='AbortError')notify('지도 위치를 불러오지 못했습니다.')}
+}
+watch(()=>[initialized.value,activeView.value,currentRoom.value,roomState.value.radiusKm,state.catalogVersion],loadMap)
+function updateOptions(mode=roomState.value.randomMode){send('room-options',{room:currentRoom.value,radiusKm:Number(radiusDraft.value),randomMode:mode})}
+function reloadSource(){send('source-reload',{requestId:requestId()})}
 const result=computed(()=>roomState.value.lastResult?.restaurant)
 const connectionText=computed(()=>connected.value?`${state.people.length}명 함께하는 중`:initialized.value?'다시 연결하는 중…':'연결 중…')
 const requestId=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random()}`
@@ -37,7 +51,7 @@ function absorb(m){
   if(m.restaurants)state.restaurants=m.restaurants.map(r=>({...r,room:r.room||'lunch'}))
   if(m.rooms){state.rooms=m.rooms;hasRooms.value=true}
   else if('selectedIds'in m)state.rooms.lunch={selectedIds:m.selectedIds,angle:m.angle,spin:m.spin,lastResult:m.lastResult}
-  for(const key of ['catalogVersion','history','chats','people'])if(key in m)state[key]=m[key]
+  for(const key of ['catalogVersion','history','chats','people','sourceStatus'])if(key in m)state[key]=m[key]
   if(m.serverNow)serverOffset.value=m.serverNow-Date.now()
 }
 function ping(){send('ping',{sentAt:Date.now()})}
@@ -53,7 +67,9 @@ function connect(){
     }
     if(m.type==='state')absorb(m)
     if(m.type==='people')state.people=m.people
-    if(m.type==='selection'){state.rooms[key].selectedIds=m.selectedIds;state.rooms[key].angle=m.angle}
+    if(m.type==='room-options')absorb(m)
+    if(m.type==='source-status'){state.sourceStatus=m.sourceStatus;if(!m.sourceStatus.busy)loadMap()}
+    if(m.type==='selection'){if(m.rooms)state.rooms=m.rooms;state.rooms[key].selectedIds=m.selectedIds;state.rooms[key].angle=m.angle}
     if(m.type==='spin'){state.rooms[key].spin=m.spin;serverOffset.value=m.serverNow-Date.now()}
     if(m.type==='result'){
       state.rooms[key].spin=null;state.rooms[key].angle=m.angle;state.rooms[key].lastResult=m.result
@@ -108,34 +124,41 @@ function formatTime(at){return new Date(at).toLocaleString('ko-KR',{month:'numer
 function toggleTheme(){theme.value=theme.value==='dark'?'light':theme.value==='light'?'system':'dark';document.documentElement.dataset.theme=theme.value;remember('lunch-theme',theme.value)}
 function onVisibility(){if(document.hidden)leave();else if(connected.value){send('sync');ping()}}
 onMounted(()=>{document.documentElement.dataset.theme=theme.value;connect();clockTimer=setInterval(ping,15000);document.addEventListener('visibilitychange',onVisibility)})
-onBeforeUnmount(()=>{destroyed=true;clearTimeout(reconnectTimer);clearTimeout(noticeTimer);clearInterval(clockTimer);socket?.close();document.removeEventListener('visibilitychange',onVisibility)})
+onBeforeUnmount(()=>{destroyed=true;clearTimeout(reconnectTimer);clearTimeout(noticeTimer);clearInterval(clockTimer);mapController?.abort();socket?.close();document.removeEventListener('visibilitychange',onVisibility)})
 </script>
 
 <template>
   <div class="lunch-app" :class="{'panel-open':panelOpen}" @keydown.esc="setPanelOpen(false)" @pointermove="move" @pointerleave="leave">
-    <div class="background"><BackgroundMap v-if="initialized" :key="`${activeView}:${state.catalogVersion}`" :restaurants="mapRestaurants" :result="activeView==='manage'?null:roomState.lastResult" :spin="activeView==='manage'?null:roomState.spin" :wheel-visible="activeView!=='manage'&&wheelVisible"/><div class="map-veil"></div></div>
+    <div class="background"><BackgroundMap v-if="initialized" :restaurants="mapRestaurants" :radius-km="Number(radiusDraft)" :result="activeView==='manage'?null:roomState.lastResult" :spin="activeView==='manage'?null:roomState.spin" :wheel-visible="activeView!=='manage'&&wheelVisible"/><div class="map-veil"></div></div>
     <header class="topbar">
 
       <nav class="room-tabs" aria-label="GS강서타워 모임방 선택"><button v-for="view in viewOptions" :key="view.id" :class="{active:activeView===view.id}" :aria-current="activeView===view.id?'page':undefined" @click="chooseView(view.id)">{{view.icon}} {{view.label}}</button></nav>
       <div class="top-actions"><span class="status" :class="{online:connected}"><i></i>{{connectionText}}</span><button class="icon-button" @click="toggleTheme" :aria-label="`화면 테마: ${theme}`">{{theme==='dark'?'🌙':theme==='light'?'☀️':'◐'}}</button><button v-if="activeView!=='manage'" class="wheel-toggle" :aria-expanded="wheelVisible" aria-controls="lunch-wheel" @click="toggleWheel"><span class="toggle-full">{{wheelVisible?'돌림판 숨기기':'돌림판 보기'}}</span><span class="toggle-short">{{wheelVisible?'🎡 숨김':'🎡 보기'}}</span></button><button class="panel-toggle" :aria-expanded="panelOpen" aria-controls="lunch-records" @click="setPanelOpen(!panelOpen)">{{panelOpen?'기록 접기 →':'← 공용 기록'}}</button></div>
     </header>
+    <div class="radius-toolbar glass">
+      <label for="radius-slider">{{roomTitle}} 반경 <b>{{Number(radiusDraft).toFixed(1)}}km</b></label>
+      <input id="radius-slider" type="range" min="0" max="2" step="0.1" v-model.number="radiusDraft" :disabled="!ready||!!roomState.spin" @change="updateOptions()" aria-label="GS강서타워 기준 반경">
+      <small>직선거리 · {{roomState.poolSize||0}}곳 추첨 가능</small>
+    </div>
     <main ref="sharedStage" class="shared-stage">
       <section id="lunch-wheel" v-show="activeView!=='manage'&&wheelVisible" class="wheel-card glass">
         <div class="eyebrow"><span class="tiny-dot"></span>{{currentRoom==='coffee'?'COFFEE TOGETHER':'LUNCH TOGETHER'}}</div>
         <h1>{{currentRoom==='coffee'?'커피 어디서 마실까?':'오늘 점심 뭐 먹지?'}}</h1><p class="subtitle">GS강서타워 주변 · {{currentRoom==='coffee'?'같이 고르는 커피 한 잔':'오늘도 맛있는 한 끼'}}</p>
-        <Wheel :key="currentRoom" :restaurants="roomRestaurants" :selected-ids="roomState.selectedIds" :spin="roomState.spin" :angle="roomState.angle" :server-offset="serverOffset" :icon="roomIcon"/>
-        <button class="spin-button" :disabled="!ready||!!roomState.spin||roomState.selectedIds.length<2" @click="spin">{{roomState.spin?`${roomState.spin.actor.name}님이 돌리는 중…`:'돌려라! 🎡'}}</button>
+        <Wheel :key="currentRoom" :restaurants="wheelRestaurants" :selected-ids="roomState.effectiveIds||[]" :spin="roomState.spin" :angle="roomState.angle" :server-offset="serverOffset" :icon="roomIcon"/>
+        <div class="random-mode" role="group" aria-label="추첨 대상"><button :class="{active:roomState.randomMode!=='all'}" :disabled="!ready||!!roomState.spin" @click="updateOptions('visible')">노출된 가게만</button><button :class="{active:roomState.randomMode==='all'}" :disabled="!ready||!!roomState.spin" @click="updateOptions('all')">미노출 포함 전체 랜덤</button></div>
+        <p class="field-help">{{roomState.randomMode==='all'?'방별 업종 · 반경 안 전체에서 동일 확률로 추첨 · 화면에는 최대 12곳 표시':'노출한 가게 중 체크한 후보 · 현재 반경 적용'}}</p>
+        <button class="spin-button" :disabled="!ready||!!roomState.spin||state.sourceStatus.busy||roomState.poolSize<2" @click="spin">{{roomState.spin?`${roomState.spin.actor.name}님이 돌리는 중…`:'돌려라! 🎡'}}</button>
         <div class="result-card" aria-live="polite">
           <template v-if="roomState.spin"><span class="result-label">두구두구…</span><b>함께 갈 곳을 고르고 있어요</b><small>{{roomTitle}} 모두 같은 결과를 기다리는 중!</small></template>
           <template v-else-if="result"><span class="result-label">🎉 {{currentRoom==='coffee'?'오늘의 커피는':'오늘의 점심은'}}</span><b>{{result.name}} <em>{{result.category}}</em></b><small>{{result.description}}</small><small>{{result.hours}}</small><span v-if="result.lat==null" class="coordinate-hint">아직 위치가 등록되지 않았어요</span></template>
           <template v-else><span class="result-label">다 같이 고르는 {{roomTitle}}</span><b>{{roomRestaurants.length?'돌림판을 돌려보세요 🎡':'첫 후보를 등록해 주세요'}}</b><small>정보등록방에서 후보를 추가할 수 있어요</small></template>
         </div>
-        <div class="menu-heading"><h2>오늘의 후보 <span>{{roomState.selectedIds.length}} / {{roomRestaurants.length}}</span></h2><button class="text-button" @click="chooseView('manage')">후보 등록 · 수정 ↗</button></div>
+        <div class="menu-heading"><h2>오늘의 후보 <span>{{roomState.poolSize||0}}곳 추첨 가능</span></h2><button class="text-button" @click="chooseView('manage')">후보 등록 · 수정 ↗</button></div>
         <div v-if="!roomRestaurants.length" class="empty-candidates"><span>{{roomIcon}}</span><p>아직 등록된 후보가 없어요.</p><button @click="chooseView('manage')">정보등록방에서 추가하기</button></div>
-        <div class="restaurant-list"><label v-for="r in roomRestaurants" :key="r.id" :class="{excluded:!roomState.selectedIds.includes(r.id)}"><input type="checkbox" :checked="roomState.selectedIds.includes(r.id)" :disabled="!ready||!!roomState.spin" @change="selectRestaurant(r,$event)"><span><strong>{{r.name}}</strong><i>{{r.category}}<template v-if="r.category&&r.hours"> · </template>{{r.hours}}</i></span><span class="location-badge" :title="r.lat==null?'좌표 미등록':'지도에 표시됨'">{{r.lat==null?'○':'⌖'}}</span></label></div>
+        <div class="restaurant-list"><label v-for="r in roomRestaurants" :key="r.id" :class="{excluded:!roomState.selectedIds.includes(r.id)}"><input type="checkbox" :checked="roomState.selectedIds.includes(r.id)" :disabled="!ready||!!roomState.spin" @change="selectRestaurant(r,$event)"><span><strong>{{r.name}}</strong><i>{{r.excluded?'미노출 · ':''}}{{r.sourceMissing?'원본 미확인 · ':''}}{{r.lat==null?'좌표 등록 필요 · ':''}}{{r.category}}<template v-if="r.category&&r.hours"> · </template>{{r.hours}}</i></span><span class="location-badge" :title="r.lat==null?'좌표 미등록':'지도에 표시됨'">{{r.lat==null?'○':'⌖'}}</span></label></div>
         <p class="note">거리·영업시간은 방문 전에 한 번 확인하세요.</p>
       </section>
-      <CatalogEditor v-if="activeView==='manage'" ref="editor" :restaurants="state.restaurants" :version="state.catalogVersion" :saving="saving" :connected="ready" @save="saveCatalog"/>
+      <CatalogEditor v-if="activeView==='manage'" ref="editor" :restaurants="state.restaurants" :version="state.catalogVersion" :saving="saving" :connected="ready" :source-status="state.sourceStatus" :room="currentRoom" @reload-source="reloadSource" @save="saveCatalog"/>
       <div v-for="p in state.people.filter(p=>p.cursor)" :key="p.id" class="remote-cursor" :style="{left:`${p.cursor.x*100}%`,top:`${p.cursor.y*100}%`,'--person-color':p.color}"><svg viewBox="0 0 24 24" width="21" height="25"><path d="M3 2 L4 21 L10 15 L15 22 L19 19 L14 12 L22 11 Z" fill="currentColor" stroke="white" stroke-width="1.5"/></svg><span class="cursor-emoji">{{p.emoji}}</span><span class="cursor-name">{{p.name}}</span><div v-if="p.message" class="cursor-bubble">{{p.message}}</div></div>
     </main>
     <aside id="lunch-records" v-show="panelOpen" class="side-panel glass" :class="{open:panelOpen}" aria-label="공용 선정 이력과 채팅">
