@@ -91,3 +91,10 @@
 
 - 실제 자동 배포 전환 완료: runner PID 25656, 서비스 3000번, activeRevision 9308e88, 15분 간격. 실제 설치·15개 테스트·빌드·임시 포트 smoke·운영 기동 및 즉시 원격 재확인 통과. 운영 후보·source-index 해시와 채팅·추첨 이력 prefix 보존 확인. 최초 백업은 .deploy/backups/pre-auto-20261030-101904.
 - 상태 명령의 실행 여부 비교에서 UTC/한국 시간 혼용으로 false가 표시되어 양쪽을 UTC로 비교하도록 보완했다. 실제 실행 상태는 PID, heartbeat와 HTTP health로 확인한다.
+## 2026-10-30 개발 분리·Teams 공유 병합 인계
+
+- codex/development-guide에서 개발 분리 변경(0434b72)과 origin/main의 Teams 공유 기능(ff1d584)을 병합했다. 병합 커밋은 00c32c1이며 충돌 없이 완료됐다. 이 작업에서 원격 main에 푸시하지 않았다.
+- npm run dev는 3001번/.dev-data를 사용하며 원본 없는 개발 샘플과 기존 파일 보존 동작을 유지한다. 공유 설정도 개발은 .dev-data/sharing.json, 운영은 data/sharing.json으로 분리한다. 운영 채팅방 설정을 개발에 자동 복사하지 않는다.
+- 3001번 개발 서버만 병합본으로 재시작했다. PID는 .deploy/dev-server.pid로 확인한다. 3000번 운영 서버와 자동 배포 감시는 직접 종료·재시작하지 않았다.
+- 검증: Node 24로 전체 테스트 19개 통과, Vite build 통과, git diff --check 통과. 임시 브라우저에서 저장 결과 화면·공유 문구·채팅방 열기 요청·커피/정보등록/점심 탭 전환을 검증했다. 복사와 Teams 열기는 가짜 함수로 검사하여 실제 클립보드나 외부 메시지를 변경하지 않았다.
+- config/restaurants.json의 기존 사용자 변경은 미커밋 상태로 유지했고 병합 전후 해시 일치를 확인했다. 원래 변경과 미추적 파일의 백업은 .deploy/merge-backups/20261030-155442에 있다. data/.dev-data/.deploy는 Git 제외를 유지한다.
