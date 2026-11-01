@@ -5,10 +5,11 @@
 ## 브랜치와 배포
 
 - 공유 서비스는 GitHub main을 .deploy/releases에서 자동 배포하며 3000번을 사용한다. 미커밋 로컬 코드는 서비스에 반영되지 않는다.
-- 사람과 AI 모두 codex/작업명 브랜치에서 개발한다. 예: codex/catalog-search. 기존의 적절한 작업 브랜치는 재사용한다.
+- 브랜치는 dev와 main 두 개를 사용한다. 사람과 AI 모두 dev에서 직접 개발·커밋·푸시하고, 검증한 변경을 dev에서 main으로 병합한다. 별도 기능 브랜치는 만들지 않는다.
 - 시작 전 git branch --show-current, git status --short, git diff로 기존 변경을 확인한다. 사용자 변경을 보존하고 작업 파일만 스테이징한다. config/restaurants.json의 기존 사용자 변경을 임의로 포함하지 않는다.
-- 깨끗한 폴더에서 새 작업을 시작할 때만 main 전환 → git pull --ff-only origin main → git switch -c codex/작업명 순서를 따른다. 미커밋 변경을 임의의 reset/clean/복구/stash로 지우거나 숨기지 않는다.
-- 작업 브랜치 푸시는 서비스 배포가 아니다. main 병합·푸시가 배포를 유발한다. 커밋·푸시·main 병합은 사용자가 요청한 범위를 따른다.
+- 깨끗한 폴더에서 작업을 시작할 때 dev 전환 → git pull --ff-only origin dev 순서를 따른다. 원격 dev가 처음이라면 먼저 공유 브랜치를 게시하는 절차를 README에서 확인한다. 미커밋 변경을 임의의 reset/clean/복구/stash로 지우거나 숨기지 않는다.
+- 여러 사람이 dev에 푸시하므로 푸시 전 git fetch origin 후 origin/dev를 병합하여 다른 사람의 변경을 반영하고 충돌을 해결·재검증한다. 강제 푸시하지 않는다.
+- dev 푸시는 서비스 배포가 아니다. 검증한 dev를 main 대상 PR로 검토·병합하고 main에 푸시하면 배포를 유발한다. 커밋·푸시·main 병합은 사용자가 요청한 범위를 따른다.
 - 일반 개발을 위해 3000번 서버나 자동 배포 감시를 종료·재시작하지 않는다.
 
 ## 로컬 개발과 원본 없는 실행

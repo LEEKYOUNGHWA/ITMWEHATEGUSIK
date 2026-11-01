@@ -9,18 +9,19 @@ Vue 3 + Vite + Node.js + WebSocket으로 만든 사내 모임방입니다. 상�
 | 용도 | 브랜치 / 코드 | 포트 | 데이터 | 명령 |
 | --- | --- | --- | --- | --- |
 | 공유 서비스 | GitHub `main` → `.deploy/releases` | **3000** | `data/` | 배포 담당 PC의 `npm run auto:start` |
-| 로컬 개발 | **`codex/작업명`** → 현재 작업 폴더 | **3001** | **`.dev-data/`** | **`npm run dev`** |
+| 로컬 개발 | **`dev`** → 현재 작업 폴더 | **3001** | **`.dev-data/`** | **`npm run dev`** |
 
-사람과 AI 모두 `codex/catalog-search`처럼 작업 내용이 드러나는 브랜치에서 개발합니다. `main`은 서비스 기준 브랜치입니다. 작업 브랜치 푸시는 서비스에 반영되지 않고, `main`에 병합·푸시하면 자동 배포가 기본 15분 간격으로 확인해 설치·테스트·빌드·기동 검사 후 3000번에 반영합니다.
+브랜치는 **`dev`와 `main` 두 개**를 사용합니다. 사람과 AI 모두 `dev`에서 직접 개발·커밋·푸시하며 별도 기능 브랜치는 만들지 않습니다. `dev`는 공동 개발 브랜치이고 `main`은 서비스 기준 브랜치입니다. `dev` 푸시는 서비스에 반영되지 않습니다. 검증한 `dev`를 `main`에 병합·푸시하면 자동 배포가 기본 15분 간격으로 확인해 설치·테스트·빌드·기동 검사 후 3000번에 반영합니다.
 
 ### 처음 받은 사람: 원본 파일 없이 시작하기
 
-Node 22.12 이상(권장: 24)과 Git을 준비하고 실행합니다. `my-task`는 작업 이름으로 바꾸세요.
+Node 22.12 이상(권장: 24)과 Git을 준비하고 실행합니다. 원격에 공유 `dev` 브랜치가 게시되어 있어야 합니다.
 
 ```sh
 git clone https://github.com/LEEKYOUNGHWA/ITMWEHATEGUSIK.git
 cd ITMWEHATEGUSIK
-git switch -c codex/my-task
+git switch dev
+git pull --ff-only origin dev
 npm ci
 npm run dev
 ```
@@ -47,21 +48,35 @@ git branch --show-current
 git status --short
 ```
 
-기존에 해당 작업용 `codex/...` 브랜치가 있으면 이어서 사용합니다. 사용자 변경이 남아 있으면 내용을 구분해 보존하고, 임의로 reset·clean·복구·stash하지 않습니다. **작업 폴더가 깨끗하고 새 작업을 시작할 때만** 다음 순서로 진행합니다.
+기존 `dev` 브랜치에서 이어서 작업합니다. 사용자 변경이 남아 있으면 내용을 구분해 보존하고, 임의로 reset·clean·복구·stash하지 않습니다. **작업 폴더가 깨끗하고 작업을 시작할 때** 다음 순서로 진행합니다.
 
 ```sh
-git switch main
-git pull --ff-only origin main
-git switch -c codex/my-task
+git switch dev
+git pull --ff-only origin dev
 npm ci
 npm run dev
 ```
+
+원격 `dev`를 처음 준비하는 담당자는 기존 개발 내용을 가진 로컬 `dev`에서 `git push -u origin dev`로 공유 브랜치를 게시합니다. 개발 브랜치가 전혀 없는 새 저장소라면 최신 `main`에서 `git switch -c dev`로 만든 뒤 게시합니다. 로컬 `dev`의 추적 대상은 `origin/dev`로 설정합니다. `git pull --ff-only`가 로컬·원격 커밋 분기로 실패하면 강제로 덮어쓰지 말고 아래 병합 절차를 따릅니다.
 
 ### 검증·공유·서비스 반영
 
 기능 변경은 `npm test`, `npm run build`와 3001번의 해당 흐름으로 확인합니다. 문서만 수정했다면 내용과 `git diff --check`를 확인합니다. 테스트는 임시 가상 데이터를 사용하므로 실제 CSV 없이 실행됩니다.
 
-커밋 전 `git diff`와 `git status --short`로 확인하고 **작업 파일만 지정하여** 스테이징합니다. 특히 `config/restaurants.json`의 사용자 변경을 별도 요청 없이 포함하지 않습니다. 작업 브랜치에서 커밋한 다음 `git push -u origin HEAD`로 공유하고, GitHub에서 `main` 대상 PR을 검토·병합합니다. `main` 병합·푸시는 서비스 배포를 유발하므로 개발 브랜치 푸시와 구분하세요.
+커밋 전 `git diff`와 `git status --short`로 확인하고 **작업 파일만 지정하여** 스테이징합니다. 특히 `config/restaurants.json`의 사용자 변경을 별도 요청 없이 포함하지 않습니다. 각자 `dev`에서 자신의 작업을 커밋합니다.
+
+여러 사람이 같은 `dev`에 푸시하므로 작업 커밋 후, 작업 폴더가 깨끗한 상태에서 다음 순서로 원격 변경을 반영합니다. 남겨 둔 사용자 변경이 있으면 이를 보존한 별도 작업 폴더 등에서 병합하고 임의로 stash하지 않습니다.
+
+```sh
+git fetch origin
+git merge origin/dev
+# 충돌이 있으면 해결하고, 변경에 맞는 테스트·빌드를 다시 확인
+git push origin dev
+```
+
+푸시가 다른 사람의 새 커밋 때문에 거절되면 fetch·병합·검증 후 다시 푸시합니다. 공유 `dev`에는 강제 푸시하지 않습니다.
+
+서비스에 반영할 때는 `dev` 전체 변경을 확인하고 GitHub에서 **`dev` → `main` PR**을 검토·병합합니다. 여러 사람의 변경이 함께 포함될 수 있으므로 배포 대상 전체가 검증되었는지 확인합니다. `main`에만 추가된 변경이 있으면 먼저 `dev`로 병합하고 재검증합니다. `main` 병합·푸시는 서비스 배포를 유발합니다.
 
 AI도 먼저 `AGENTS.md`를 읽고 같은 절차를 따릅니다. 일반 개발을 위해 3000번 서버나 감시 프로세스를 종료·재시작하지 않습니다. 커밋·푸시·main 병합은 사용자가 요청한 범위를 따릅니다.
 
@@ -86,7 +101,7 @@ npm run auto:stop     # 검사와 자동 서버 중지 요청
 
 ### 동작 방식
 
-- origin/main을 기본 15분마다 fetch해서 새 커밋을 확인합니다. 브랜치에만 푸시하면 배포하지 않고 main에 병합돼야 반영됩니다. 로그인은 이 PC에 저장된 Git 인증을 사용하며 인증 실패 시 팝업을 띄우지 않고 로그에 남깁니다.
+- origin/main을 기본 15분마다 fetch해서 새 커밋을 확인합니다. dev에만 푸시하면 배포하지 않고 main에 병합돼야 반영됩니다. 로그인은 이 PC에 저장된 Git 인증을 사용하며 인증 실패 시 팝업을 띄우지 않고 로그에 남깁니다.
 - 새 커밋은 .deploy/releases 아래의 독립적인 Git worktree에 받습니다. VS Code 작업 폴더와 미커밋 수정은 보존됩니다. 작업 폴더의 main 자체를 이동시키는 방식이 아니므로 실제 서비스 버전은 auto:status의 activeRevision으로 확인하세요.
 - 새 폴더에서 npm ci → npm test → npm run build를 실행합니다. 기존 서버는 이 동안 계속 운영합니다.
 - 공통 데이터의 사본으로 임시 포트에서 새 서버를 띄워 상태를 확인합니다. 검사·빌드·기동에 실패하면 기존 서버를 유지합니다.
