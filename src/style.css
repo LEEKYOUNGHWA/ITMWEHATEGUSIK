@@ -121,3 +121,17 @@
 .winner-location{font-size:28px;text-align:center;filter:drop-shadow(0 2px 4px #0005)}
 
 .source-list{max-height:min(55dvh,600px);overflow:auto;scrollbar-width:thin}.manual-shortcut{border:1px solid var(--line);background:var(--soft);color:var(--fg);padding:9px 12px;border-radius:8px;font-size:11px;margin-bottom:18px}
+
+/* Larger shared avatars, with names below and chat above the right shoulder. */
+.remote-cursor{width:64px;max-width:none;flex-direction:column;gap:5px;align-items:center;overflow:visible}
+.remote-cursor>svg{position:absolute;left:-17px;top:-6px;width:18px;height:23px}
+.remote-cursor .cursor-emoji{display:block;font-size:52px;line-height:1.15;filter:drop-shadow(0 3px 5px #0002)}
+.remote-cursor .cursor-name{flex-shrink:0;max-width:144px;font-size:12px;line-height:1.4;padding:5px 11px;border:2px solid #fff9;box-shadow:0 3px 10px #0002}
+.remote-cursor .cursor-bubble{left:58px;bottom:calc(100% - 20px);max-width:min(280px,50vw);font-size:15px;line-height:1.65;padding:13px 17px;border-radius:18px 18px 18px 3px;box-shadow:0 5px 20px #0002;white-space:pre-wrap}
+@media(max-width:760px){
+  .remote-cursor{width:52px}
+  .remote-cursor .cursor-emoji{font-size:42px}
+  .remote-cursor .cursor-name{font-size:11px;max-width:120px}
+  .remote-cursor .cursor-bubble{left:47px;font-size:14px;padding:11px 14px}
+}
+@media(prefers-reduced-motion:reduce){.remote-cursor{transition:none}}

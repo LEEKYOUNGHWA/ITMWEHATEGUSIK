@@ -4,6 +4,7 @@ import Wheel from './Wheel.vue'
 import BackgroundMap from './BackgroundMap.vue'
 import CatalogEditor from './CatalogEditor.vue'
 import ResultShare from './ResultShare.vue'
+import MoneyRain from './MoneyRain.vue'
 
 const emojis=['🧑‍🚀','🧑‍🍳','🧑‍💻','🧑‍🎨','🧑‍🚒','🧙','🥷','👩‍🔬','👨‍🌾','🦸','🧝','🕵️']
 const viewOptions=[{id:'coffee',label:'커피방',icon:'☕'},{id:'lunch',label:'점심방',icon:'🍚'},{id:'manage',label:'정보등록방',icon:'📝'}]
@@ -142,6 +143,7 @@ onBeforeUnmount(()=>{destroyed=true;clearTimeout(reconnectTimer);clearTimeout(no
       <small>직선거리 · {{roomState.poolSize||0}}곳 추첨 가능</small>
     </div>
     <main ref="sharedStage" class="shared-stage">
+      <MoneyRain />
       <section id="lunch-wheel" v-show="activeView!=='manage'&&wheelVisible" class="wheel-card glass">
         <div class="eyebrow"><span class="tiny-dot"></span>{{currentRoom==='coffee'?'COFFEE TOGETHER':'LUNCH TOGETHER'}}</div>
         <h1>{{currentRoom==='coffee'?'커피 어디서 마실까?':'오늘 점심 뭐 먹지?'}}</h1><p class="subtitle">GS강서타워 주변 · {{currentRoom==='coffee'?'같이 고르는 커피 한 잔':'오늘도 맛있는 한 끼'}}</p>
