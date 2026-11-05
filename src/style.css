@@ -128,10 +128,10 @@
 .emoji-trigger{width:42px;height:40px;font-size:26px;border:1px solid var(--line);border-radius:9px;background:var(--soft)}
 .emoji-popup{position:absolute;bottom:calc(100% + 12px);left:0;width:min(420px,calc(100vw - 32px));max-height:min(680px,calc(100dvh - 32px));overflow-y:auto;overflow-x:hidden;padding:12px;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);background:var(--card);color:var(--fg);z-index:10}
 .emoji-heading{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:700}
-.emoji-heading button{background:transparent;border:0;color:var(--fg);font-size:22px}
+.emoji-heading button{background:transparent;border:0;color:var(--fg);font-size:22px;padding:0;width:28px;height:28px;line-height:1}
 .emoji-popup h4{font-size:11px;margin:14px 0 6px;color:var(--mut)}
 .emoji-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(32px,1fr));gap:4px}
-.emoji-grid button{min-width:0;border:1px solid transparent;border-radius:7px;background:transparent;font-size:25px;min-height:36px;padding:2px}
+.emoji-grid button{min-width:0;display:grid;place-items:center;line-height:1;border:1px solid transparent;border-radius:7px;background:transparent;font-size:25px;min-height:36px;padding:2px}
 .emoji-grid button:hover,.emoji-grid button[aria-pressed=true]{background:var(--soft);border-color:var(--acc)}
 .lunch-app .side-panel{overflow:visible}
 .people-strip{max-height:100px;overflow:auto;flex-shrink:0}
