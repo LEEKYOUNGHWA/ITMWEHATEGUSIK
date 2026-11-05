@@ -10,6 +10,7 @@ import { Store, readJson, readLines, loadRestaurants, validateRestaurants, creat
 import { eligible, distanceKm, validRadius } from '../shared/places.mjs'
 import { importInWorker } from './source.mjs'
 import { validateSharing } from '../shared/sharing.mjs'
+import { pageRecords } from '../shared/timeline.mjs'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, 'data')
 const catalogFile = path.resolve(process.env.RESTAURANTS_FILE || path.join(dataDir, 'restaurants.json'))
@@ -26,8 +27,8 @@ const categoryFile = path.join(root, 'config/source-categories.json')
 const saved = await readJson(path.join(dataDir, 'settings.json'), {})
 const profiles = new IpProfiles(store, await readJson(path.join(dataDir, 'profiles.json'), {}))
 await profiles.persistIds()
-const history = (await readLines(path.join(dataDir, 'history.jsonl'))).map(h => ({ ...h, room: h.room || 'lunch' }))
-const chats = await readLines(path.join(dataDir, 'chat.jsonl'))
+const history = (await readLines(path.join(dataDir, 'history.jsonl'))).map(h => ({ ...h, room: h.room || 'lunch' })).map((row, sequence) => ({...row, sequence}))
+const chats = (await readLines(path.join(dataDir, 'chat.jsonl'))).map((row, sequence) => ({...row, sequence}))
 const rooms = Object.fromEntries(ROOM_IDS.map(key => {
   const previous = saved.rooms?.[key] || (key === 'lunch' ? saved : {})
   const candidates = restaurants.filter(r => r.room === key)
@@ -36,6 +37,7 @@ const rooms = Object.fromEntries(ROOM_IDS.map(key => {
     radiusKm: validRadius(previous.radiusKm) ? previous.radiusKm : 1,
     randomMode: previous.randomMode === 'all' ? 'all' : 'visible',
     angle: Number.isFinite(previous.angle) ? previous.angle : 0,
+    completedWheel: previous.completedWheel || null,
     spin: previous.activeSpin || null,
     lastResult: history.findLast(h => h.room === key) || null
   }]
@@ -49,7 +51,7 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 16384 })
 const send = (ws, type, payload) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, ...payload })) }
 const broadcast = (type, payload, except) => { for (const ws of clients.keys()) if (ws !== except) send(ws, type, payload) }
 const people = () => [...clients.values()].filter(p => p.joined).map(({ id, name, emoji, color, cursor, message, messageAt }) => ({ id, name, emoji, color, cursor, message, messageAt }))
-const settings = (overrides = {}) => ({ rooms: Object.fromEntries(ROOM_IDS.map(key => [key, { selectedIds: rooms[key].selectedIds, radiusKm: rooms[key].radiusKm, randomMode: rooms[key].randomMode, angle: rooms[key].angle, activeSpin: rooms[key].spin, ...overrides[key] }])) })
+const settings = (overrides = {}) => ({ rooms: Object.fromEntries(ROOM_IDS.map(key => [key, { selectedIds: rooms[key].selectedIds, radiusKm: rooms[key].radiusKm, randomMode: rooms[key].randomMode, angle: rooms[key].angle, completedWheel: rooms[key].completedWheel, activeSpin: rooms[key].spin, ...overrides[key] }])) })
 // Lunch aliases let already-open clients reconnect during this update.
 const withActor = row => row && { ...row, actor: profiles.current(row.actor) }
 const catalogView = () => restaurants.map(r => ({ ...r, sourceMissing: !!(r.sourceId && sourceIndex.metadata && !sourceLookup.has(r.sourceId)) }))
@@ -70,7 +72,7 @@ function roomView(key) {
   return {...rooms[key],poolSize:rows.length,effectiveIds:preview.map(r=>r.id),previewRestaurants:preview,spin:withActor(rooms[key].spin),lastResult:withActor(rooms[key].lastResult)}
 }
 const roomSnapshots = () => Object.fromEntries(ROOM_IDS.map(key => [key, roomView(key)]))
-const snapshot = () => ({ serverNow: Date.now(), restaurants: catalogView(), sourceStatus: sourceStatus(), catalogVersion, rooms: roomSnapshots(), selectedIds: rooms.lunch.selectedIds, angle: rooms.lunch.angle, spin: withActor(rooms.lunch.spin), lastResult: withActor(rooms.lunch.lastResult), history: history.slice(-500).reverse().map(withActor), chats: chats.slice(-200).map(c => profiles.current(c)), people: people() })
+const snapshot = () => ({ serverNow: Date.now(), restaurants: catalogView(), sourceStatus: sourceStatus(), catalogVersion, rooms: roomSnapshots(), selectedIds: rooms.lunch.selectedIds, angle: rooms.lunch.angle, spin: withActor(rooms.lunch.spin), lastResult: withActor(rooms.lunch.lastResult), history: history.slice(-50).map(withActor), chats: chats.slice(-50).map(c => profiles.current(c)), timeline: { history: { ...pageRecords(history), items: undefined }, chat: { ...pageRecords(chats), items: undefined } }, people: people() })
 const error = (ws, message, requestId) => send(ws, 'error', { message, requestId })
 const diskError = e => { console.error('파일 저장 실패:', e); broadcast('error', { message: '파일 저장에 실패했습니다. 디스크 공간과 폴더 권한을 확인하세요.' }) }
 function mutate(operation) {
@@ -82,13 +84,15 @@ async function finalizeSpin(key) {
   const state = rooms[key], spin = state.spin
   if (!spin) return
   const restaurant = spin.restaurant || restaurants.find(r => r.id === spin.winnerId) || { id: spin.winnerId, name: '삭제된 후보' }
-  const result = { id: spin.id, room: key, restaurantId: spin.winnerId, restaurant: { ...restaurant }, at: spin.startedAt + spin.duration, actor: spin.actor }
+  const result = { sequence: history.length, id: spin.id, room: key, restaurantId: spin.winnerId, restaurant: { ...restaurant }, at: spin.startedAt + spin.duration, actor: spin.actor }
   try {
     if (!history.some(r => r.id === spin.id)) { await store.append('history.jsonl', result); history.push(result) }
     const angle = ((spin.endAngle % TAU) + TAU) % TAU
-    await store.set('settings.json', settings({ [key]: { angle, activeSpin: null } }))
+    const completedWheel = { spinId: spin.id, ids: [...spin.ids], restaurants: spin.restaurants || spin.ids.map(id => restaurants.find(r => r.id === id)).filter(Boolean), angle }
+    await store.set('settings.json', settings({ [key]: { angle, activeSpin: null, completedWheel } }))
+    state.completedWheel = completedWheel
     state.angle = angle; state.spin = null; state.lastResult = history.find(r => r.id === spin.id)
-    broadcast('result', { room: key, result: withActor(state.lastResult), angle, serverNow: Date.now() })
+    broadcast('result', { room: key, result: withActor(state.lastResult), angle, completedWheel: state.completedWheel, serverNow: Date.now() })
   } catch (e) { diskError(e); spinTimers.set(key, setTimeout(() => mutate(() => finalizeSpin(key)), 3000)) }
 }
 for (const key of ROOM_IDS) if (rooms[key].spin) {
@@ -105,6 +109,16 @@ server.on('request', async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost')
     res.setHeader('X-Content-Type-Options', 'nosniff')
+    if (url.pathname === '/api/timeline/history' || url.pathname === '/api/timeline/chat') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.setHeader('Cache-Control', 'no-store')
+      if (req.method !== 'GET') { res.statusCode=405; res.setHeader('Allow','GET'); return res.end(JSON.stringify({error:'GET only'})) }
+      try {
+        const isHistory=url.pathname.endsWith('/history')
+        const page=pageRecords(isHistory?history:chats,{before:url.searchParams.get('before'),after:url.searchParams.get('after'),limit:url.searchParams.get('limit')||50})
+        page.items=page.items.map(row=>isHistory?withActor(row):profiles.current(row))
+        return res.end(JSON.stringify(page))
+      } catch(e) { res.statusCode=400; return res.end(JSON.stringify({error:e.message})) }
+    }
     if (url.pathname === '/api/health') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ ok: true, online: people().length, port: server.address()?.port, revision: process.env.APP_REVISION || null })) }
     if (url.pathname === '/api/sharing-config' || url.pathname.startsWith('/api/results/')) {
       res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json; charset=utf-8')
@@ -114,7 +128,8 @@ server.on('request', async (req, res) => {
       try{id=decodeURIComponent(url.pathname.slice('/api/results/'.length))}catch{res.statusCode=400;return res.end(JSON.stringify({error:'Invalid result ID'}))}
       const result=history.find(row=>row.id===id)
       if(!result){res.statusCode=404;return res.end(JSON.stringify({error:'Result not found'}))}
-      return res.end(JSON.stringify(result))
+      const { sequence, ...sharedResult } = result
+      return res.end(JSON.stringify(sharedResult))
     }
     if (url.pathname === '/api/state') { res.setHeader('Cache-Control', 'no-store'); res.setHeader('Content-Type', 'application/json; charset=utf-8'); return res.end(JSON.stringify(snapshot())) }
     if (url.pathname === '/api/places' || url.pathname === '/api/places/map') {
@@ -199,7 +214,7 @@ wss.on('connection', (ws, req) => {
         p.lastChat = now; requests.set('chat:' + id, now)
         const row = { id: randomUUID(), text, at: now, personId: p.id, profileId: p.profileId, name: p.name, emoji: p.emoji, color: p.color }
         try {
-          await store.append('chat.jsonl', row); chats.push(row)
+          await store.append('chat.jsonl', row); row.sequence=chats.length; chats.push(row)
           try { await profiles.rememberMessage(p.ip, text, now) } catch(e) { diskError(e) }
           for (const peer of clients.values()) if (peer.ip === p.ip) { peer.message = text; peer.messageAt = now }
           broadcast('chat', { chat: row }); broadcast('people', { people: people() })
@@ -213,7 +228,7 @@ wss.on('connection', (ws, req) => {
         sourceBusy=true;broadcast('source-status',{sourceStatus:sourceStatus()})
         try {
           const next=await importInWorker(path.join(dataDir,'source','seoul.csv'),categoryFile)
-          await mutate(async()=>{await store.set('source-index.json',next);sourceIndex=next;sourceLookup=new Map(next.places.map(r=>[r.sourceId,r]));catalogVersion++;broadcast('catalog',{restaurants:catalogView(),catalogVersion,rooms:roomSnapshots()})})
+          await mutate(async()=>{await store.set('source-index.json',next);sourceIndex=next;sourceLookup=new Map(next.places.map(r=>[r.sourceId,r]));for(const key of ROOM_IDS){rooms[key].completedWheel=null;rooms[key].angle=0}await store.set('settings.json',settings());catalogVersion++;broadcast('catalog',{restaurants:catalogView(),catalogVersion,rooms:roomSnapshots()})})
         }catch(e){console.error('원본 적용 실패:',e.message);error(ws,'원본 적용 실패: '+e.message,m.requestId)}
         finally{sourceBusy=false;broadcast('source-status',{sourceStatus:sourceStatus()})}
         return
@@ -243,7 +258,7 @@ wss.on('connection', (ws, req) => {
           restaurants = next; catalogVersion++
           for (const key of ROOM_IDS) {
             rooms[key].selectedIds = next.filter(r => r.room === key && (rooms[key].selectedIds.includes(r.id) || !previous.some(old => old.id === r.id && old.room === key))).map(r => r.id)
-            rooms[key].angle = 0
+            rooms[key].angle = 0; rooms[key].completedWheel = null
           }
           try { await store.set('settings.json', settings()) } catch(e) { diskError(e) }
           broadcast('catalog', { restaurants: catalogView(), catalogVersion, rooms: roomSnapshots(), requestId: m.requestId })
@@ -256,8 +271,8 @@ wss.on('connection', (ws, req) => {
           const room=rooms[key]
           if(room.spin)return error(ws,'회전이 끝난 뒤 설정을 바꿔 주세요.')
           if(!validRadius(m.radiusKm)||!['visible','all'].includes(m.randomMode))return error(ws,'반경 또는 추첨 방식이 잘못되었습니다.')
-          await store.set('settings.json',settings({[key]:{radiusKm:m.radiusKm,randomMode:m.randomMode,angle:0}}))
-          room.radiusKm=m.radiusKm;room.randomMode=m.randomMode;room.angle=0
+          await store.set('settings.json',settings({[key]:{radiusKm:m.radiusKm,randomMode:m.randomMode,angle:0,completedWheel:null}}))
+          room.radiusKm=m.radiusKm;room.randomMode=m.randomMode;room.angle=0;room.completedWheel=null
           broadcast('room-options',{rooms:roomSnapshots()})
         })
       }
@@ -267,8 +282,8 @@ wss.on('connection', (ws, req) => {
           if (state.spin) return error(ws, '회전이 끝난 뒤 후보를 변경해 주세요.')
           if (!restaurants.some(r => r.id === m.id && r.room === key) || typeof m.enabled !== 'boolean') return error(ws, '후보 선택 값이 잘못되었습니다.')
           const next = restaurants.filter(r => r.room === key && (r.id === m.id ? m.enabled : state.selectedIds.includes(r.id))).map(r => r.id)
-          await store.set('settings.json', settings({ [key]: { selectedIds: next, angle: 0 } }))
-          state.selectedIds = next; state.angle = 0
+          await store.set('settings.json', settings({ [key]: { selectedIds: next, angle: 0, completedWheel: null } }))
+          state.selectedIds = next; state.angle = 0; state.completedWheel = null
           broadcast('selection', { room: key, selectedIds: next, angle: 0, rooms: roomSnapshots() })
         })
       }

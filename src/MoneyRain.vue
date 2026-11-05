@@ -5,7 +5,7 @@ const canvas = ref(null)
 let context, frame = 0, previous = 0, lastDrop = 0, lastPoint = null, motion
 let width = 0, height = 0
 const notes = [], rings = []
-const blocked = '.glass:not(.wheel-card),header,aside,button,input,select,textarea,a,.leaflet-control,.leaflet-popup'
+const blocked = 'header,button,input,select,textarea,a,.emoji-popup,.leaflet-control,.leaflet-popup'
 const random = (min, max) => min + Math.random() * (max - min)
 
 function resize() {

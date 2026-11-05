@@ -6,7 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { WebSocket } from 'ws'
-import { createSpin, pickedId, loadRestaurants, Store, readLines, IpProfiles, normalizeIp } from '../server/model.mjs'
+import { createSpin, pickedId, loadRestaurants, Store, readLines, readJson, IpProfiles, normalizeIp } from '../server/model.mjs'
 const fixtureCatalog=Array.from({length:12},(_,i)=>({id:'fixture'+i,room:'lunch',name:'식당'+i,lat:37.520814+i*.00001,lng:126.88904}));
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')
 async function temporary(fn) { const dir=await mkdtemp(path.join(tmpdir(),'lunch-wheel-test-'));try { return await fn(dir) } finally { if(!path.resolve(dir).startsWith(path.resolve(tmpdir())+path.sep))throw new Error('unsafe temp path');await rm(dir,{recursive:true,force:true}) } }
@@ -174,9 +174,11 @@ test('커피·점심은 후보와 회전을 분리하고 채팅·이력 및 JSON
     await a.wait('error',m=>m.requestId==='bad-coordinates'&&m.message.includes('lat/lng'))
     a.send('selection',{room:'coffee',id:coffeeA.id,enabled:false});await b.wait('selection',m=>m.room==='coffee'&&!m.selectedIds.includes(coffeeA.id))
     a.send('selection',{room:'coffee',id:coffeeA.id,enabled:true});await b.wait('selection',m=>m.room==='coffee'&&m.selectedIds.includes(coffeeA.id))
+    // Queue the edit behind the spin on the same socket instead of racing its short animation.
     a.send('spin',{room:'coffee',requestId:'coffee-spin'});b.send('spin',{room:'lunch',requestId:'lunch-spin'})
+    a.send('catalog-save',{action:'delete',version:2,requestId:'during-spin',id:coffeeA.id})
     await a.wait('spin',m=>m.room==='coffee');await a.wait('spin',m=>m.room==='lunch')
-    a.send('catalog-save',{action:'delete',version:2,requestId:'during-spin',id:coffeeA.id});await a.wait('error',m=>m.requestId==='during-spin'&&m.message.includes('회전'))
+    await a.wait('error',m=>m.requestId==='during-spin'&&m.message.includes('회전'))
     const coffeeResult=await a.wait('result',m=>m.room==='coffee'),lunchResult=await b.wait('result',m=>m.room==='lunch')
     assert.notEqual(coffeeResult.result.id,lunchResult.result.id)
     const commonHistory=await readLines(path.join(dir,'history.jsonl'));assert.equal(commonHistory.length,2);assert.deepEqual(new Set(commonHistory.map(h=>h.room)),new Set(['coffee','lunch']))
@@ -276,9 +278,9 @@ test('전체 목록 노출 체크, 전체 랜덤, 공유 반경, 원본 교체�
     const all=await b.wait('room-options',m=>m.rooms.coffee.randomMode==='all')
     assert.equal(all.rooms.coffee.poolSize,2);assert.equal(all.rooms.lunch.randomMode,'visible')
     a.send('spin',{room:'coffee',requestId:'all-spin'})
+    a.send('room-options',{room:'coffee',radiusKm:0,randomMode:'all'})
     const spin=await b.wait('spin',m=>m.room==='coffee')
     assert.ok(spin.spin.ids.includes(coffee.id));assert.equal(spin.spin.poolSize,2)
-    a.send('room-options',{room:'coffee',radiusKm:0,randomMode:'all'})
     await a.wait('error',m=>m.message.includes('회전'))
     await b.wait('result',m=>m.room==='coffee')
     a.send('room-options',{room:'coffee',radiusKm:0,randomMode:'all'})
@@ -315,7 +317,7 @@ test('원본 필수 열·중복 업소번호 오류와 수기 좌표 없는 가�
 test('전체 랜덤은 많은 미노출 후보를 포함하고 표시 개수만 제한한다',()=>temporary(async dir=>{
   await writeFile(path.join(dir,'restaurants.json'),'[]')
   await prepareCsv(dir,Array.from({length:30},(_,i)=>['c'+i,'카페'+i,'','I2','I21201','카페','서울',TOWER.lng,TOWER.lat+i*.000001]))
-  const app=await start(dir);let a
+  let app=await start(dir),a
   try{
     a=await client(app.port,'전체랜덤')
     a.send('source-reload',{requestId:'many-import'});await a.wait('catalog',m=>m.catalogVersion===1)
@@ -324,7 +326,19 @@ test('전체 랜덤은 많은 미노출 후보를 포함하고 표시 개수만 
     a.send('spin',{room:'coffee',requestId:'many-spin'})
     const {spin}=await a.wait('spin');assert.equal(spin.poolSize,30);assert.equal(spin.ids.length,12);assert.equal(new Set(spin.ids).size,12);assert.equal(pickedId(spin),spin.winnerId)
     assert.equal(spin.restaurants.find(r=>r.id===spin.winnerId).name,spin.restaurant.name)
-    await a.wait('result')
+    const finished=await a.wait('result')
+    assert.deepEqual(finished.completedWheel.ids,spin.ids)
+    assert.deepEqual(finished.completedWheel.restaurants,spin.restaurants)
+    assert.equal(pickedId({...spin,endAngle:finished.completedWheel.angle}),finished.result.restaurantId)
+    const stored=await readJson(path.join(dir,'settings.json'))
+    assert.deepEqual(stored.rooms.coffee.completedWheel,finished.completedWheel)
+    const late=await client(app.port,'결과확인')
+    assert.deepEqual(late.welcome.rooms.coffee.completedWheel,finished.completedWheel)
+    late.ws.close();a.ws.close();await app.stop();app=await start(dir)
+    a=await client(app.port,'재시작확인')
+    assert.deepEqual(a.welcome.rooms.coffee.completedWheel,finished.completedWheel)
+    a.send('room-options',{room:'coffee',radiusKm:0.5,randomMode:'all'})
+    const changed=await a.wait('room-options');assert.equal(changed.rooms.coffee.completedWheel,null)
   }finally{a?.ws.close();await app.stop()}
 }))
 
@@ -336,7 +350,19 @@ test('공유 결과는 최근 500건 밖에서도 원본 식당 정보로 조회
   let app=await start(dir)
   try{
     let base='http://127.0.0.1:'+app.port
-    assert.equal((await (await fetch(base+'/api/state')).json()).history.length,500)
+    const initial=await (await fetch(base+'/api/state')).json()
+    assert.equal(initial.history.length,50)
+    assert.equal(initial.timeline.history.total,502)
+    assert.equal(initial.history[0].id,'shared-452')
+    let cursor=initial.timeline.history.nextCursor, collected=[...initial.history]
+    while(cursor){
+      const page=await (await fetch(base+'/api/timeline/history?before='+cursor)).json()
+      collected=[...page.items,...collected]
+      cursor=page.hasMore?page.nextCursor:null
+    }
+    assert.deepEqual(collected.map(row=>row.id),rows.map(row=>row.id))
+    assert.equal((await fetch(base+'/api/timeline/history?before=missing')).status,400)
+    assert.equal((await fetch(base+'/api/timeline/history',{method:'POST'})).status,405)
     const response=await fetch(base+'/api/results/shared-0');assert.equal(response.status,200);assert.match(response.headers.get('cache-control'),/no-store/)
     assert.deepEqual(await response.json(),rows[0])
     assert.equal((await fetch(base+'/api/results/missing')).status,404)

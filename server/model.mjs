@@ -2,7 +2,8 @@ import { readFile, writeFile, mkdir, appendFile, rename } from 'node:fs/promises
 import path from 'node:path'
 import { randomUUID, randomInt } from 'node:crypto'
 
-export const EMOJIS = ['🧑‍🚀','🧑‍🍳','🧑‍💻','🧑‍🎨','🧑‍🚒','🧙','🥷','👩‍🔬','👨‍🌾','🦸','🧝','🕵️']
+import { EMOJIS } from '../shared/emojis.mjs'
+export { EMOJIS }
 export const TAU = Math.PI * 2
 const json = text => JSON.parse(text.replace(/^\uFEFF/, ''))
 export async function readJson(file, fallback) {
