@@ -167,7 +167,7 @@ function Stop-Server($Worker) {
 }
 function Copy-Data([string]$Destination) {
   New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-  foreach ($name in @('restaurants.json','settings.json','history.jsonl','chat.jsonl','profiles.json','source-index.json','sharing.json')) {
+  foreach ($name in @('restaurants.json','settings.json','history.jsonl','chat.jsonl','profiles.json','source-index.json','sharing.json','connections.json')) {
     $source = Join-Path $DataDir $name
     if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination (Join-Path $Destination $name) }
   }

@@ -11,6 +11,8 @@ import { eligible, distanceKm, validRadius } from '../shared/places.mjs'
 import { importInWorker } from './source.mjs'
 import { validateSharing } from '../shared/sharing.mjs'
 import { pageRecords } from '../shared/timeline.mjs'
+import { ConnectionHistory, describeAgent } from './connections.mjs'
+import { handleAccount } from './account-http.mjs'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, 'data')
 const catalogFile = path.resolve(process.env.RESTAURANTS_FILE || path.join(dataDir, 'restaurants.json'))
@@ -27,6 +29,9 @@ const categoryFile = path.join(root, 'config/source-categories.json')
 const saved = await readJson(path.join(dataDir, 'settings.json'), {})
 const profiles = new IpProfiles(store, await readJson(path.join(dataDir, 'profiles.json'), {}))
 await profiles.persistIds()
+const connections=await ConnectionHistory.open(store)
+const connectionCleanup=setInterval(()=>connections.prune().catch(error=>console.error('접속 이력 정리 실패:',error.message)),86400000)
+connectionCleanup.unref()
 const history = (await readLines(path.join(dataDir, 'history.jsonl'))).map(h => ({ ...h, room: h.room || 'lunch' })).map((row, sequence) => ({...row, sequence}))
 const chats = (await readLines(path.join(dataDir, 'chat.jsonl'))).map((row, sequence) => ({...row, sequence}))
 const rooms = Object.fromEntries(ROOM_IDS.map(key => {
@@ -73,6 +78,11 @@ function roomView(key) {
 }
 const roomSnapshots = () => Object.fromEntries(ROOM_IDS.map(key => [key, roomView(key)]))
 const snapshot = () => ({ serverNow: Date.now(), restaurants: catalogView(), sourceStatus: sourceStatus(), catalogVersion, rooms: roomSnapshots(), selectedIds: rooms.lunch.selectedIds, angle: rooms.lunch.angle, spin: withActor(rooms.lunch.spin), lastResult: withActor(rooms.lunch.lastResult), history: history.slice(-50).map(withActor), chats: chats.slice(-50).map(c => profiles.current(c)), timeline: { history: { ...pageRecords(history), items: undefined }, chat: { ...pageRecords(chats), items: undefined } }, people: people() })
+function publishProfile(ip,identity) {
+  for(const peer of clients.values())if(peer.ip===ip&&peer.joined){peer.name=identity.name;peer.emoji=identity.emoji;if(identity.id)peer.profileId=identity.id}
+  for(const [peerSocket,peer]of clients)if(peer.ip===ip&&peer.joined)send(peerSocket,'welcome',{self:{id:peer.id,name:peer.name,emoji:peer.emoji},...snapshot()})
+  broadcast('people',{people:people()});if(identity.id)broadcast('rename',{profileId:identity.id,name:identity.name,emoji:identity.emoji})
+}
 const error = (ws, message, requestId) => send(ws, 'error', { message, requestId })
 const diskError = e => { console.error('파일 저장 실패:', e); broadcast('error', { message: '파일 저장에 실패했습니다. 디스크 공간과 폴더 권한을 확인하세요.' }) }
 function mutate(operation) {
@@ -109,6 +119,7 @@ server.on('request', async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost')
     res.setHeader('X-Content-Type-Options', 'nosniff')
+    if(await handleAccount(req,res,{profiles,clients,connections,publishProfile}))return
     if (url.pathname === '/api/timeline/history' || url.pathname === '/api/timeline/chat') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.setHeader('Cache-Control', 'no-store')
       if (req.method !== 'GET') { res.statusCode=405; res.setHeader('Allow','GET'); return res.end(JSON.stringify({error:'GET only'})) }
@@ -153,13 +164,13 @@ server.on('request', async (req, res) => {
     const servePage = async () => {
       if (dev) { const html = await vite.transformIndexHtml(req.url, await readFile(path.join(root, 'index.html'), 'utf8')); res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(html) }
       else {
-        let file = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname).slice(1)
+        let file = ['/', '/profile', '/places', '/settings'].includes(url.pathname) ? 'index.html' : decodeURIComponent(url.pathname).slice(1)
         const absolute = path.resolve(root, 'dist', file)
         if (!absolute.startsWith(path.join(root, 'dist') + path.sep)) { res.statusCode = 404; return res.end() }
         try { const contents = await readFile(absolute); const ext = path.extname(file); res.setHeader('Content-Type', ({ '.html':'text/html; charset=utf-8', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.svg':'image/svg+xml', '.woff2':'font/woff2' })[ext] || 'application/octet-stream'); res.end(contents) } catch { res.statusCode = 404; res.end('npm run build 후 npm start를 실행하세요.') }
       }
     }
-    if (dev) vite.middlewares(req, res, err => { if (err) { console.error(err); res.statusCode = 500; return res.end('화면 로딩 오류') }; if (url.pathname !== '/' && url.pathname !== '/index.html') { res.statusCode = 404; return res.end('Not found') }; servePage().catch(e => { vite.ssrFixStacktrace(e); console.error(e); res.statusCode = 500; res.end('화면 로딩 오류') }) })
+    if (dev) vite.middlewares(req, res, err => { if (err) { console.error(err); res.statusCode = 500; return res.end('화면 로딩 오류') }; if (!['/', '/index.html', '/profile', '/places', '/settings'].includes(url.pathname)) { res.statusCode = 404; return res.end('Not found') }; servePage().catch(e => { vite.ssrFixStacktrace(e); console.error(e); res.statusCode = 500; res.end('화면 로딩 오류') }) })
     else await servePage()
   } catch (e) { console.error(e); res.statusCode = 500; res.end('서버 오류') }
 })
@@ -170,7 +181,7 @@ server.on('upgrade', (req, socket, head) => {
 })
 
 wss.on('connection', (ws, req) => {
-  const p = { ip: normalizeIp(req.socket.remoteAddress), id: randomUUID(), name: `친구 ${randomInt(10, 100)}`, emoji: EMOJIS[randomInt(EMOJIS.length)], color: ['#e8553d','#3fa796','#4f86c6','#9a6ad1'][clients.size % 4], cursor: null, joined: false, message: '', messageAt: 0, lastCursor: 0, lastChat: 0, budget: 0, budgetAt: Date.now(), alive: true }
+  const p = { connectedAt:Date.now(),...describeAgent(req.headers['user-agent']),historyRecorded:false,ip: normalizeIp(req.socket.remoteAddress), id: randomUUID(), name: `친구 ${randomInt(10, 100)}`, emoji: EMOJIS[randomInt(EMOJIS.length)], color: ['#e8553d','#3fa796','#4f86c6','#9a6ad1'][clients.size % 4], cursor: null, joined: false, message: '', messageAt: 0, lastCursor: 0, lastChat: 0, budget: 0, budgetAt: Date.now(), alive: true }
   clients.set(ws, p)
   const joinTimeout = setTimeout(() => { if (!p.joined) ws.close(1008, 'join timeout') }, 10000)
   ws.on('pong', () => { p.alive = true })
@@ -192,9 +203,8 @@ wss.on('connection', (ws, req) => {
         if (ws.readyState !== WebSocket.OPEN) return
         p.joined = true; clearTimeout(joinTimeout)
         if (m.type === 'join') { p.message = typeof identity.lastMessage === 'string' ? identity.lastMessage : ''; p.messageAt = identity.lastMessageAt || 0 }
-        for (const peer of clients.values()) if (peer.ip === p.ip && peer.joined) { peer.name = identity.name; peer.emoji = identity.emoji; if (identity.id) peer.profileId = identity.id }
-        for (const [peerSocket, peer] of clients) if (peer.ip === p.ip && peer.joined) send(peerSocket, 'welcome', { self: { id: peer.id, name: peer.name, emoji: peer.emoji }, ...snapshot() })
-        broadcast('people', { people: people() }); if (identity.id) broadcast('rename', { profileId: identity.id, name: identity.name, emoji: identity.emoji }); return
+        if(identity.id&&!p.historyRecorded){p.historyRecorded=true;connections.record({...p,profileId:identity.id}).catch(error=>console.error('접속 이력 저장 실패:',error.message))}
+        publishProfile(p.ip,identity);return
       }
       if (!p.joined) return
       if (m.type === 'sync') return send(ws, 'state', snapshot())
@@ -325,7 +335,7 @@ async function shutdown() {
   shuttingDown = true; clearInterval(heartbeat)
   for (const timer of spinTimers.values()) clearTimeout(timer)
   for (const ws of clients.keys()) ws.close(1001, 'server shutdown')
-  await mutationQueue; await profiles.queue; await store.queue; await catalogStore.queue
+  clearInterval(connectionCleanup);await connections.queue;await mutationQueue; await profiles.queue; await store.queue; await catalogStore.queue
   if (vite) await vite.close()
   server.close(() => process.exit(0))
   setTimeout(() => process.exit(0), 2000).unref()

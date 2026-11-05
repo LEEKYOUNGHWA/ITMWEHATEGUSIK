@@ -382,3 +382,54 @@ test('공유 설정은 Teams HTTPS 링크만 허용하고 결과 링크는 ID를
   const text=resultText({room:'coffee',at:1700000000000,restaurant:{name:'카페',address:'주소'}},'http://10.0.0.1/?result=a')
   assert.match(text,/커피 추첨 결과/);assert.match(text,/주소: 주소/);assert.match(text,/result=a/);assert.ok(!text.includes('undefined'))
 })
+
+
+test('내 정보 HTTP API는 본인 IP의 정보와 이력만 제공하고 수정 결과를 실시간 반영한다',()=>temporary(async dir=>{
+  const ua='Mozilla/5.0 (Windows NT 10.0) Chrome/130.0'
+  let app=await start(dir),clients=[]
+  try{
+    let base='http://127.0.0.1:'+app.port
+    assert.equal((await fetch(base+'/api/me')).status,401)
+    const a=await client(app.port,'내 사용자',{headers:{'User-Agent':ua}})
+    const other=await client(app.port,'다른 사용자',{localAddress:'127.0.0.2',headers:{'User-Agent':'Mozilla Linux Firefox/132.0'}});clients=[a,other]
+    const headers={'X-Connection-ID':a.welcome.self.id,'User-Agent':ua}
+    const me=await (await fetch(base+'/api/me',{headers})).json()
+    assert.equal(me.profile.name,'내 사용자');assert.equal(me.connection.ip,'127.0.0.1');assert.equal(me.connection.status,'connected');assert.equal(me.connection.os,'Windows')
+    assert.match(me.connection.browser,/Chrome/);assert.ok(me.connection.connectedAt)
+    const log=await (await fetch(base+'/api/me/connections?profileId=other',{headers})).json()
+    assert.equal(log.items.length,1);assert.equal(log.retentionDays,30);assert.equal(log.limit,100);assert.equal(log.items[0].id,a.welcome.self.id);assert.equal(log.items[0].ip,'127.0.0.1')
+    const forged=await (await fetch(base+'/api/me',{headers:{...headers,'X-Connection-ID':other.welcome.self.id}})).json();assert.equal(forged.connection.status,'disconnected');assert.equal(forged.connection.connectedAt,null)
+    const patch=body=>fetch(base+'/api/me',{method:'PATCH',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(body)})
+    for(const invalid of [{name:''},{name:'x'.repeat(17)},{emoji:'not an emoji'},{ip:'8.8.8.8'}])assert.equal((await patch(invalid)).status,400)
+    assert.equal((await fetch(base+'/api/me',{method:'DELETE'})).status,405)
+    assert.equal((await fetch(base+'/api/me',{method:'PATCH',headers:{...headers,'Content-Type':'application/json',Origin:'https://other.example'},body:'{}'})).status,403)
+    assert.equal((await fetch(base+'/api/me',{method:'PATCH',headers:{...headers,'Content-Type':'application/json'},body:'invalid'})).status,400)
+    assert.equal((await fetch(base+'/api/me',{method:'PATCH',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({name:'x'.repeat(5000)})})).status,413)
+    const response=await patch({name:'HTTP 수정',emoji:'🐱'});assert.equal(response.status,200);assert.equal((await response.json()).profile.emoji,'🐱')
+    await a.wait('welcome',m=>m.self.name==='HTTP 수정');await other.wait('rename',m=>m.name==='HTTP 수정')
+    assert.equal((await (await fetch(base+'/api/me/connections')).json()).items.length,1)
+    const publicState=await (await fetch(base+'/api/state')).json();assert.ok(publicState.people.every(p=>!('ip'in p)&&!('browser'in p)&&!('connectedAt'in p)))
+    assert.ok(!JSON.stringify(publicState).includes('127.0.0.'))
+    const stored=await readJson(path.join(dir,'profiles.json'));assert.equal(stored['127.0.0.1'].name,'HTTP 수정');assert.equal(stored['127.0.0.2'].name,'다른 사용자')
+    const concurrent=await Promise.all([patch({name:'동시 수정'}),patch({emoji:'🐼'})]);assert.ok(concurrent.every(response=>response.status===200))
+    const merged=await (await fetch(base+'/api/me',{headers})).json();assert.equal(merged.profile.name,'동시 수정');assert.equal(merged.profile.emoji,'🐼')
+    a.send('join',{name:'중복 접속',emoji:'🐱'});await a.wait('people',m=>m.people.some(p=>p.name==='동시 수정'))
+    assert.equal((await (await fetch(base+'/api/me/connections')).json()).items.length,1)
+    for(const c of clients)c.ws.close();await app.stop();app=await start(dir);base='http://127.0.0.1:'+app.port
+    const restored=await client(app.port,'다시 접속');clients=[restored]
+    assert.equal(restored.welcome.self.name,'동시 수정')
+    const restoredLog=await (await fetch(base+'/api/me/connections')).json();assert.equal(restoredLog.items.length,2)
+    assert.equal((await fetch(base+'/data/connections.json')).status,404)
+  }finally{for(const c of clients)c.ws.close();await app.stop()}
+}))
+
+test('관리 페이지 일반 URL은 운영과 개발 서버에서 직접 접속하고 새로고침할 수 있다',()=>temporary(async dir=>{
+  for(const dev of [false,true]){
+    const app=await start(dir,dev)
+    try{
+      for(const route of ['/profile','/places','/settings']){const response=await fetch('http://127.0.0.1:'+app.port+route);assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/text\/html/);assert.match(await response.text(),/id="app"/)}
+      assert.equal((await fetch('http://127.0.0.1:'+app.port+'/unknown-page')).status,404)
+      assert.equal((await fetch('http://127.0.0.1:'+app.port+'/data/profiles.json')).status,404)
+    }finally{await app.stop()}
+  }
+}))
