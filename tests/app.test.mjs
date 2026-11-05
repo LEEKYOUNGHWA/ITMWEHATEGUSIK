@@ -424,12 +424,23 @@ test('내 정보 HTTP API는 본인 IP의 정보와 이력만 제공하고 수�
 }))
 
 test('관리 페이지 일반 URL은 운영과 개발 서버에서 직접 접속하고 새로고침할 수 있다',()=>temporary(async dir=>{
-  for(const dev of [false,true]){
-    const app=await start(dir,dev)
-    try{
-      for(const route of ['/profile','/places','/settings']){const response=await fetch('http://127.0.0.1:'+app.port+route);assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/text\/html/);assert.match(await response.text(),/id="app"/)}
-      assert.equal((await fetch('http://127.0.0.1:'+app.port+'/unknown-page')).status,404)
-      assert.equal((await fetch('http://127.0.0.1:'+app.port+'/data/profiles.json')).status,404)
-    }finally{await app.stop()}
+  const fileSystem=await import('node:fs/promises'),indexFile=path.join(root,'dist','index.html'),fixture='<!doctype html><html><body><div id="app"></div></body></html>'
+  let created=false
+  try{
+    try{await readFile(indexFile)}catch(error){
+      if(error.code!=='ENOENT')throw error
+      await fileSystem.mkdir(path.dirname(indexFile),{recursive:true})
+      try{await writeFile(indexFile,fixture,{flag:'wx'});created=true}catch(error){if(error.code!=='EEXIST')throw error}
+    }
+    for(const dev of [false,true]){
+      const app=await start(dir,dev)
+      try{
+        for(const route of ['/profile','/places','/settings']){const response=await fetch('http://127.0.0.1:'+app.port+route);assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/text\/html/);assert.match(await response.text(),/id="app"/)}
+        assert.equal((await fetch('http://127.0.0.1:'+app.port+'/unknown-page')).status,404)
+        assert.equal((await fetch('http://127.0.0.1:'+app.port+'/data/profiles.json')).status,404)
+      }finally{await app.stop()}
+    }
+  }finally{
+    if(created){try{if(await readFile(indexFile,'utf8')===fixture)await fileSystem.unlink(indexFile)}catch(error){if(error.code!=='ENOENT')throw error}}
   }
 }))
