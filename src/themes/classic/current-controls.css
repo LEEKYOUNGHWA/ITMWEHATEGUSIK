@@ -1,0 +1,31 @@
+﻿/* Adapt only newly added controls to the preserved 3000-release design. */
+@scope (html[data-theme="classic"]) {
+  .lunch-app .wheel-window-heading, .lunch-app .poster-crown, .lunch-app .poster-food, .lunch-app .spin-hand { display: none; }
+  .lunch-app .result-copy { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 100%; }
+  .lunch-app .brand-copy { font: inherit; }
+  .lunch-app .brand-copy b { font: inherit; color: inherit; }
+  .lunch-app .brand-copy em { font: inherit; font-style: normal; color: inherit; }
+  .lunch-app .brand-copy::after { content: none; }
+  .lunch-app .system-statusbar { display: none; }
+  .lunch-app .system-statusbar small { margin-left: auto; font-size: 9px; }
+  .lunch-app .wheel-panel-toggle, .lunch-app .records-panel-toggle { position: fixed; top: calc(50dvh + var(--header-height) / 2 - 22px); z-index: 1250; width: 24px; height: 45px; padding: 0; background: var(--card); color: var(--mut); border: 1px solid var(--line); border-radius: 7px; font-size: 21px; }
+  .lunch-app .wheel-panel-toggle { left: calc(12px + var(--wheel-space)); }
+  .lunch-app.wheel-hidden .wheel-panel-toggle { left: 0; }
+  .lunch-app .records-panel-toggle { right: calc(var(--dock-space) - 12px); }
+  .lunch-app:not(.panel-open) .records-panel-toggle { right: 0; }
+  .lunch-app { --wheel-space: var(--wheel-width); }
+  .lunch-app.wheel-hidden { --wheel-space: 0px; }
+  .lunch-app .header-avatar .avatar-trigger { display: flex; align-items: center; gap: 8px; width: auto; background: var(--soft); border: 1px solid var(--line); box-shadow: none; color: var(--fg); padding: 5px 10px; border-radius: 12px; }
+  .lunch-app .header-avatar .avatar-trigger-portrait { width: 30px; height: 30px; display: grid; place-items: center; }
+  .lunch-app .header-avatar .avatar-trigger-emoji { font-size: 24px; }
+  .lunch-app .header-avatar .avatar-trigger-name { max-width: 100px; font-size: 12px; color: var(--fg); }
+  .lunch-app .wheel-main .result-card .result-copy b { font-size: 18px; }
+  .lunch-app .records-stack { border-radius: 0; }
+  .lunch-app .records-section { color: var(--fg); }
+  .lunch-app .record-count { color: var(--acc); background: #fff0ec; }
+  @media (max-width:760px) {
+    .lunch-app .system-statusbar { display: none; }
+    .lunch-app .wheel-panel-toggle { left: 0; }
+    .lunch-app .header-avatar .avatar-trigger-name { display: none; }
+  }
+}

@@ -1,0 +1,41 @@
+# Poster artwork
+
+These are decorative illustrations, not photos or menu claims about the selected restaurant. Keep the selected restaurant name, category and other result data as live HTML. Switch the artwork by room. PNG transparency is retained.
+
+- `lunch-poster-food.png`: lunch-result poster decoration.
+- `coffee-poster-food.png`: coffee-result poster decoration.
+- Generation: built-in `image_gen.imagegen`, transparent background, 2026-11-06. No API-key CLI fallback.
+
+## Lunch prompt
+
+Create ONE transparent-background decorative food cutout illustration asset for an intentionally cheesy, cute 2000s Korean company lunch intranet. Wide horizontal composition, about 3:1 aspect ratio. A glossy black bowl of Korean jajangmyeon on the left, a white platter piled with golden tangsuyuk fried pork with small bright sauce highlights in the center, and a small friendly round rice-bowl mascot on the right with rosy cheeks, tiny eyes, a joyful mouth and chopsticks. Small gold sparkle stickers and a few orange confetti shapes between the food objects, very minimal floating embellishments. Style: kitschy 2000s Korean restaurant flyer photomontage mixed with cute hand-painted sticker illustration, appetizing and friendly, shiny plastic-like highlights, bold dark outlines on the little mascot, playful rather than luxury or realistic software. Food occupies lower two thirds, clean silhouette, no scenery, no table or background panel. No text, no lettering, no numbers, no logo, no watermark, no UI, no buttons, no borders. Actual transparent alpha around all objects, not a checkerboard. It will be placed as a small decorative strip below dynamic Korean result text on a cream/gold award poster. Keep all food fully in frame, centered, with a little transparent padding.
+
+## Coffee prompt
+
+ONE transparent background wide horizontal decorative sticker strip, 3:1 composition for a cute intentionally kitschy 2000s Korean company coffee-break intranet. Left: a glossy white ceramic cappuccino cup on a blue-edged saucer, little heart in latte foam and playful cream steam curls. Center: two buttery golden croissants and a small strawberry whipped-cream cake slice in a restaurant flyer photo-cutout style. Right: a smiling little takeaway coffee-cup mascot with rosy cheeks, tiny hands, a happy open mouth and a cobalt blue sleeve, soft hand-painted sticker illustration. A few tiny gold sparkle stickers, warm orange accents, cute and approachable, nostalgic early web clipart collage and Korean bakery flyer photomontage. Food and objects fill lower two thirds, clean cutout silhouettes, all objects in frame with transparent padding. No background panel, no table, no scene, no text, no letters, no numbers, no logos, no watermark, no UI or buttons. True transparent alpha outside the objects.
+
+
+## Category-specific artwork (2026-11-06)
+
+Built-in image_gen.imagegen, transparent PNGs. These illustrate broad cuisine groups, not the selected restaurant's actual menu. Select by shared/food-appearance.mjs. Unknown or mixed categories, missing results and new lunch draws use poster-generic.png. The coffee room keeps its coffee artwork. Existing lunch-poster-food.png is now used for Chinese cuisine only.
+
+### poster-korean.png
+
+Create ONE wide horizontal 3:1 transparent-background decorative food cutout strip for a cute, intentionally kitschy 2000s Korean office lunch intranet. Style: Korean restaurant flyer food photomontage mixed with a rosy-cheeked hand-painted sticker mascot, appetizing glossy food, warm gold sparkle stickers, tiny orange confetti, friendly and playful. Objects fill the horizontal composition with little transparent padding, all food fully in frame. No table or scenery, no background panel, no text, lettering, numbers, logos, watermark, UI, buttons or borders. Genuine transparent alpha around all objects, never a checkerboard. This will be shown small on a cream/gold result poster. Subject: a colorful Korean bibimbap bowl on the left, a small black earthenware pot of warm doenjang stew with tofu and vegetables in the center, a happy small white rice-bowl mascot on the right with pink cheeks, little arms and a joyful smile. Keep the mascot cute and compact and the food prominent.
+
+### poster-japanese.png
+
+Create ONE wide horizontal 3:1 transparent-background decorative food cutout strip for a cute, intentionally kitschy 2000s Korean office lunch intranet. Style: Korean restaurant flyer food photomontage mixed with a rosy-cheeked hand-painted sticker mascot, appetizing glossy food, warm gold sparkle stickers, tiny orange confetti, friendly and playful. Objects fill the horizontal composition with little transparent padding, all food fully in frame. No table or scenery, no background panel, no text, lettering, numbers, logos, watermark, UI, buttons or borders. Genuine transparent alpha around all objects, never a checkerboard. This will be shown small on a cream/gold result poster. Subject: a small elegant plate of salmon and shrimp sushi with tiny wasabi on the left, a golden crispy tonkatsu cutlet sliced beside rice and shredded cabbage on a compact plate in the center, a happy small white rice-bowl mascot on the right with pink cheeks and little arms. Friendly flyer collage, not luxury minimalism.
+
+### poster-western.png
+
+Create ONE wide horizontal 3:1 transparent-background decorative food cutout strip for a cute, intentionally kitschy 2000s Korean office lunch intranet. Style: Korean restaurant flyer food photomontage mixed with a rosy-cheeked hand-painted sticker mascot, appetizing glossy food, warm gold sparkle stickers, tiny orange confetti, friendly and playful. Objects fill the horizontal composition with little transparent padding, all food fully in frame. No table or scenery, no background panel, no text, lettering, numbers, logos, watermark, UI, buttons or borders. Genuine transparent alpha around all objects, never a checkerboard. This will be shown small on a cream/gold result poster. Subject: a plate of bright tomato spaghetti twirled with basil on the left, a small golden cheese pizza with a triangular slice in the center, a happy small white round plate mascot on the right with tiny arms, rosy cheeks and an open joyful smile. Warm colorful restaurant-flyer collage.
+
+### poster-snack.png
+
+Create ONE wide horizontal 3:1 transparent-background decorative food cutout strip for a cute, intentionally kitschy 2000s Korean office lunch intranet. Style: Korean restaurant flyer food photomontage mixed with a rosy-cheeked hand-painted sticker mascot, appetizing glossy food, warm gold sparkle stickers, tiny orange confetti, friendly and playful. Objects fill the horizontal composition with little transparent padding, all food fully in frame. No table or scenery, no background panel, no text, lettering, numbers, logos, watermark, UI, buttons or borders. Genuine transparent alpha around all objects, never a checkerboard. This will be shown small on a cream/gold result poster. Subject: glossy red Korean tteokbokki rice cakes in a shallow white bowl on the left, a few colorful gimbap slices and two golden fried dumplings in the center, a happy small white rice-bowl mascot on the right with rosy cheeks, tiny arms and a joyful smile. Cute Korean street-food flyer collage.
+
+### poster-generic.png
+
+ONE wide 3:1 transparent-background sticker illustration strip for a cute, cheesy 2000s Korean office lunch intranet. Three friendly little lunch utensils arranged horizontally: a smiling silver spoon and fork pair on the left, a big round clean white plate mascot in the center with tiny arms and feet, pink cheeks, bright little eyes and an open happy mouth, a folded cream napkin with a small heart on the right. Tiny gold sparkle stickers and a few orange confetti shapes connect the objects. Warm hand-painted sticker style with gentle glossy highlights and dark brown outlines, intentionally nostalgic early-web clipart, cute rather than luxurious. NO food at all: no rice, noodles, meat, fish, vegetables, bread, coffee or desserts; it must suit every cuisine without implying a particular menu. No background panel, no table, no scenery, no letters, text, numbers, logos, watermark, UI, buttons or frame. True transparent alpha outside the objects. All objects completely in frame with a little transparent padding.
+

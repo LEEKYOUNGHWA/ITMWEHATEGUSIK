@@ -1,14 +1,13 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
 import { resultLink, resultText } from '../shared/sharing.mjs'
-const props=defineProps({result:Object,resultId:String})
+import { loadSharingConfig } from './services/sharingConfig.js'
+const props=defineProps({result:Object,resultId:String,compact:Boolean})
 const config=ref(null),savedResult=ref(null),loading=ref(!!props.resultId),error=ref('')
 const opened=ref(false),message=ref(''),copyStatus=ref(''),textBox=ref(null)
 onMounted(async()=>{
   try{
-    const response=await fetch('/api/sharing-config')
-    if(!response.ok)throw new Error('공유 설정을 불러오지 못했습니다. 서버 업데이트 후 다시 시도해 주세요.')
-    config.value=await response.json()
+    config.value=await loadSharingConfig()
   }catch(e){error.value=e.message}
   if(props.resultId){
     try{
@@ -64,7 +63,7 @@ function recopy(){
     </article>
   </section>
   <div v-else class="result-sharing">
-    <button class="wheel-toggle" :disabled="!result||!config" :title="!result?'추첨이 완료되면 공유할 수 있어요':!config?'공유 설정을 불러오는 중입니다':'결과를 복사하고 Teams 채팅방 열기'" @click="share">Teams에 결과 공유 ↗</button>
+    <button class="wheel-toggle" type="button" :disabled="!result||!config" :aria-label="`${result?.restaurant?.name||'선정'} 결과 Teams에 공유`" :title="!result?'추첨이 완료되면 공유할 수 있어요':!config?'공유 설정을 불러오는 중입니다':'이 기록의 결과를 복사하고 Teams 채팅방 열기'" @click="share"><span v-if="compact" class="share-icons" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" focusable="false"><circle cx="15.5" cy="5.5" r="3" fill="#7B83EB"/><circle cx="21" cy="8" r="2" fill="#5059C9"/><path d="M12 10h8v6a4 4 0 0 1-8 0z" fill="#7B83EB"/><path d="M20 11h4v5a2 2 0 0 1-4 0z" fill="#5059C9"/><rect x="1" y="6" width="13" height="13" rx="2" fill="#6264A7"/><path d="M4.5 9.5h6M7.5 9.5v7" stroke="#fff" stroke-width="1.8" stroke-linecap="square"/></svg><svg viewBox="0 0 20 20" width="13" height="13" fill="none" focusable="false"><path d="M11 3h6v6M17 3l-9 9M8 5H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><template v-else>Teams에 결과 공유 ↗</template></button>
     <small v-if="error" role="alert">{{error}}</small>
   </div>
   <Teleport to="body">
@@ -86,6 +85,7 @@ function recopy(){
 </template>
 
 <style scoped>
+.share-icons{display:inline-flex;align-items:center;justify-content:center;gap:3px;line-height:1}.share-icons svg{flex-shrink:0}
 .result-sharing{margin:0}.result-sharing small{display:block;margin-top:8px;color:var(--mut)}
 .shared-result-page{min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--soft)}
 .shared-result-card{width:min(100%,620px);padding:32px;border-radius:20px;overflow-wrap:anywhere}

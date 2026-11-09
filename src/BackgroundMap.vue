@@ -82,7 +82,7 @@ onMounted(() => {
   timer = setTimeout(() => { if (!loaded) emit('status','error') },10000)
   circle=L.circle(tower,{radius:props.radiusKm*1000,color:'#4f86c6',weight:1.5,fillOpacity:.05,interactive:false}).addTo(map)
   renderMarkers()
-  const towerLabel=document.createElement('span');towerLabel.textContent='GS강서타워';L.marker(tower,{icon:L.divIcon({className:'tower-marker',html:'🏢',iconSize:[38,38],iconAnchor:[19,38]}),interactive:false}).addTo(map).bindTooltip(towerLabel,{permanent:true,direction:'top',offset:[0,-38],className:'map-label'})
+  const towerLabel=document.createElement('span');towerLabel.textContent='강서타워';L.marker(tower,{icon:L.divIcon({className:'tower-marker',html:'🏢',iconSize:[38,38],iconAnchor:[19,38]}),interactive:false}).addTo(map).bindTooltip(towerLabel,{permanent:true,direction:'top',offset:[0,-38],className:'map-label'})
   overview(false)
   if (!props.spin) focus(props.result,false)
   resizeObserver=new ResizeObserver(()=>{
