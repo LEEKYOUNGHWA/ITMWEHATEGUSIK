@@ -1,5 +1,6 @@
 import { EMOJIS, normalizeIp } from './model.mjs'
 import { describeAgent, RETENTION_DAYS, CONNECTION_LIMIT } from './connections.mjs'
+import { DEFAULT_THEME, validTheme } from '../shared/themes.mjs'
 
 async function readBody(req) {
   if(!String(req.headers['content-type']||'').includes('application/json'))throw Object.assign(new Error('JSON 형식으로 보내 주세요.'),{status:415})
@@ -11,7 +12,7 @@ async function readBody(req) {
 
 export async function handleAccount(req,res,{profiles,clients,connections,publishProfile}) {
   const pathname=new URL(req.url,'http://localhost').pathname
-  if(!['/api/me','/api/me/connections'].includes(pathname))return false
+  if(!['/api/me','/api/me/connections','/api/me/preferences'].includes(pathname))return false
   const json=(status,value)=>{res.statusCode=status;res.end(JSON.stringify(value));return true}
   res.setHeader('Content-Type','application/json; charset=utf-8');res.setHeader('Cache-Control','no-store')
   const allowed=pathname.endsWith('/connections')?['GET']:['GET','PATCH']
@@ -24,6 +25,12 @@ export async function handleAccount(req,res,{profiles,clients,connections,publis
       try{if(req.headers.origin)validOrigin=new URL(req.headers.origin).host===req.headers.host}catch{validOrigin=false}
       if(!validOrigin||req.headers['sec-fetch-site']==='cross-site')return json(403,{error:'같은 사이트에서만 수정할 수 있습니다.'})
       const body=await readBody(req)
+      if(pathname.endsWith('/preferences')) {
+        if(!body || typeof body!=='object' || Array.isArray(body) || Object.keys(body).length!==1 || !validTheme(body.theme))return json(400,{error:'지원하는 테마를 선택해 주세요.'})
+        await profiles.setTheme(ip,body.theme)
+        for(const [ws,peer] of clients)if(peer.joined&&peer.ip===ip&&ws.readyState===1)ws.send(JSON.stringify({type:'preferences',preferences:{theme:body.theme}}))
+        return json(200,{preferences:{theme:body.theme}})
+      }
       if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(key=>!['name','emoji'].includes(key)))return json(400,{error:'이름과 이모지만 수정할 수 있습니다.'})
       const name=body.name===undefined?undefined:typeof body.name==='string'?body.name.trim():''
       const emoji=body.emoji
@@ -32,6 +39,7 @@ export async function handleAccount(req,res,{profiles,clients,connections,publis
       publishProfile(ip,identity)
       return json(200,{profile:{id:identity.id,name:identity.name,emoji:identity.emoji,updatedAt:identity.updatedAt}})
     }
+    if(pathname.endsWith('/preferences'))return json(200,{preferences:{theme:validTheme(known.theme)?known.theme:DEFAULT_THEME}})
     if(pathname.endsWith('/connections'))return json(200,{items:await connections.list(known.id),retentionDays:RETENTION_DAYS,limit:CONNECTION_LIMIT})
     const connection=[...clients.values()].find(peer=>peer.joined&&peer.ip===ip&&peer.id===req.headers['x-connection-id'])
     return json(200,{

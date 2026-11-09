@@ -1,0 +1,75 @@
+/* Shared header layout: title, room selection, theme switch and user menu. */
+.lunch-app.lunch-app.lunch-app { --header-height: 76px; }
+.lunch-app .workspace-header.topbar.workspace-header {
+  display: flex;
+  grid-template-columns: none;
+  grid-template-rows: none;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 18px;
+  height: var(--header-height);
+  padding: 0 24px;
+}
+/* Keep header controls above the retro skin's decorative background. */
+.lunch-app .workspace-header > .site-title,
+.lunch-app .workspace-header > .room-tabs,
+.lunch-app .workspace-header > .header-actions {
+  position: relative;
+  z-index: 1;
+}
+.lunch-app .workspace-header .site-title { order: 0; flex: 0 0 auto; align-self: center; }
+.lunch-app .workspace-header .room-tabs { order: 1; grid-row: auto; grid-column: auto; flex: 0 0 auto; align-self: center; justify-content: flex-start; margin: 0; height: auto; }
+.lunch-app .workspace-header .header-avatar { order: 2; grid-row: auto; grid-column: auto; margin-left: auto; align-self: center; flex-shrink: 0; }
+.lunch-app .workspace-header .header-actions { order: 2; display: flex; align-items: center; gap: 12px; margin-left: auto; flex-shrink: 0; }
+.lunch-app .workspace-header .header-actions .header-avatar { margin-left: 0; }
+.lunch-app .workspace-header .header-theme-toggle {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 3px;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--mut);
+  box-shadow: none;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.lunch-app .workspace-header .header-theme-toggle::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 2);
+  border-radius: inherit;
+  background: var(--fg);
+  transition: transform .2s ease;
+}
+.lunch-app .workspace-header .header-theme-toggle[aria-checked="true"]::before { transform: translateX(100%); }
+.lunch-app .workspace-header .header-theme-toggle > span { min-width: 48px; padding: 5px 7px; text-align: center; }
+.lunch-app .workspace-header .header-theme-toggle > .selected { color: var(--bg); }
+.lunch-app .workspace-header .header-theme-toggle:focus-visible { outline: 2px solid var(--acc); outline-offset: 3px; }
+@media (max-width:1100px) and (min-width:761px) {
+  .lunch-app .workspace-header.topbar.workspace-header { gap: 12px; padding: 0 16px; }
+  .lunch-app .workspace-header .site-title > .brand-copy { --brand-font-size: 25px; }
+  .lunch-app .workspace-header .room-tabs button { min-width: 85px; padding-left: 10px; padding-right: 10px; }
+  .lunch-app .workspace-header .header-avatar .avatar-trigger { width: auto; max-width: 150px; }
+}
+@media (max-width:760px) {
+  .lunch-app.lunch-app.lunch-app { --header-height: 108px; }
+  .lunch-app .workspace-header.topbar.workspace-header { display: grid; grid-template-columns: minmax(0,1fr) auto; grid-template-rows: 56px 44px; gap: 0 12px; padding: 4px 14px; }
+  .lunch-app .workspace-header .site-title { grid-row: 1; grid-column: 1; min-width: 0; flex-basis: auto; }
+  .lunch-app .workspace-header .header-avatar { grid-row: 1; grid-column: 2; }
+  .lunch-app .workspace-header .header-actions { grid-row: 1; grid-column: 2; gap: 6px; }
+  .lunch-app .workspace-header .header-theme-toggle { font-size: 10px; }
+  .lunch-app .workspace-header .header-theme-toggle > span { min-width: 40px; padding: 5px 4px; }
+  .lunch-app .workspace-header .room-tabs { grid-row: 2; grid-column: 1 / -1; justify-self: start; }
+  .lunch-app .workspace-header .room-tabs button { height: 34px; min-width: 92px; font-size: 12px; }
+}

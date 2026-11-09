@@ -1,0 +1,157 @@
+
+@font-face {
+  font-family: 'Jua';
+  src: url('/fonts/Jua-Regular.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@scope (html[data-theme="retro"]) {
+/* Design settings: fonts, colors, panel widths, responsive type and map-control spacing. */
+
+:scope {
+  --ui-font: "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --display-font: "Jua", "Malgun Gothic", sans-serif;
+  --bg: #d4d0c8;
+  --fg: #161616;
+  --card: #eceae5;
+  --mut: #565656;
+  --line: #a7a7a7;
+  --soft: #e4e3df;
+  --acc: #df0800;
+  --shadow: 2px 2px 0 #0005;
+}
+
+.lunch-app {
+  --header-height: 122px;
+}
+
+.lunch-app.settings-view {
+  --header-height: 122px;
+}
+
+@media (max-width: 1100px) {
+  .lunch-app {
+    --header-height: 122px;
+  }
+  .lunch-app.settings-view {
+    --header-height: 122px;
+  }
+}
+
+@media (max-width: 760px) {
+  .lunch-app {
+    --header-height: 158px;
+  }
+  .lunch-app.settings-view {
+    --header-height: 158px;
+  }
+}
+
+.lunch-app {
+  --wheel-space: var(--wheel-width);
+  --workspace-bottom: 27px;
+}
+
+.lunch-app.wheel-hidden {
+  --wheel-space: 0px;
+}
+
+@media (max-width:1100px) and (min-width:761px) {
+  .lunch-app {
+    --drawer-width: 360px;
+  }
+}
+
+@media (max-width:760px) {
+  .lunch-app {
+    --wheel-space: 0px;
+    --workspace-bottom: 0px;
+  }
+}
+
+.lunch-app {
+  --wheel-width: clamp(390px, 32vw, 480px);
+  --dock-width: 360px;
+}
+
+.lunch-app .site-title > .brand-copy {
+  --brand-font-size: 40px;
+}
+
+.lunch-app .wheel-main h1 {
+  --wheel-title-size: 34px;
+}
+
+.lunch-app .wheel-main .spin-button {
+  --spin-label-size: 26px;
+}
+
+@media (min-width:1600px) {
+  .lunch-app {
+    --dock-width: 380px;
+  }
+}
+
+@media (max-width:1350px) and (min-width:1101px) {
+  .lunch-app {
+    --wheel-width: 380px;
+    --dock-width: 330px;
+  }
+  .lunch-app .site-title > .brand-copy {
+    --brand-font-size: 36px;
+  }
+}
+
+@media (max-width:1100px) and (min-width:761px) {
+  .lunch-app {
+    --wheel-width: 360px;
+    --dock-width: 300px;
+  }
+  .lunch-app .site-title > .brand-copy {
+    --brand-font-size: 29px;
+  }
+}
+
+@media (max-height:760px) {
+  .lunch-app .wheel-main h1 {
+    --wheel-title-size: 27px;
+  }
+  .lunch-app .wheel-main .spin-button {
+    --spin-label-size: 22px;
+  }
+}
+
+@media (max-width:760px) {
+  .lunch-app {
+    --wheel-width: min(380px,calc(100vw - 28px));
+    --dock-width: min(360px,calc(100vw - 32px));
+  }
+  .lunch-app .site-title > .brand-copy {
+    --brand-font-size: clamp(17px,4.8vw,24px);
+  }
+  .lunch-app .wheel-main h1 {
+    --wheel-title-size: 27px;
+  }
+  .lunch-app .wheel-main .spin-button {
+    --spin-label-size: 22px;
+  }
+}
+
+.lunch-app {
+  --map-toolbar-left-gap: 18px;
+  --map-controls-column: 120px;
+}
+
+.lunch-app .wheel-main .result-copy b {
+  --result-title-size: 24px;
+}
+
+@media (max-width:760px) {
+  .lunch-app .wheel-main .result-copy b {
+    --result-title-size: 22px;
+  }
+}
+
+}

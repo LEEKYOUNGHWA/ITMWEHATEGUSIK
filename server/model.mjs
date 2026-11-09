@@ -107,5 +107,17 @@ export class IpProfiles {
     this.queue = result.catch(() => {})
     return result
   }
+  setTheme(ip, theme) {
+    const result = this.queue.then(async () => {
+      const key = normalizeIp(ip), known = this.entries[key]
+      if (!known) throw new Error('사용자 정보를 찾을 수 없습니다.')
+      const next = { ...this.entries, [key]: { ...known, theme } }
+      await this.store.set('profiles.json', next)
+      this.entries = next
+      return next[key]
+    })
+    this.queue = result.catch(() => {})
+    return result
+  }
 
 }

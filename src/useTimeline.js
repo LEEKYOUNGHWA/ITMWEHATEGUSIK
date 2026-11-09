@@ -1,7 +1,7 @@
 import { reactive, nextTick } from 'vue'
 import { mergeRecords } from '../shared/timeline.mjs'
 
-export function useTimeline(state, boxes, notify) {
+export function useTimeline(state, boxes, notify, visible = () => true) {
   const meta = reactive(Object.fromEntries(['history','chat'].map(key => [key, { total: 0, hasMore: false, loading: false, error: '', unseen: 0, initialized: false, follow: true, savedTop: 0 }])))
   const controllers = new Set(), syncing = new Set(), pendingSync = new Map()
   const field = key => key === 'chat' ? 'chats' : 'history'
@@ -24,9 +24,9 @@ export function useTimeline(state, boxes, notify) {
   function append(key, items, own = false) {
     const follow=own || (boxes[key].value?.clientHeight ? bottom(key) : meta[key].follow), anchor=follow?null:capture(key), rows=state[field(key)], known=new Set(rows.map(row=>row.id))
     state[field(key)]=mergeRecords(rows,items)
-    const fresh=items.filter(row=>!known.has(row.id)).length
+    const fresh=items.filter(row=>!known.has(row.id) && visible(key,row)).length
     meta[key].total=Math.max(meta[key].total,state[field(key)].length)
-    if(follow) latest(key); else {meta[key].unseen+=fresh;restore(key,anchor)}
+    if(fresh) { if(follow) latest(key); else {meta[key].unseen+=fresh;restore(key,anchor)} }
   }
   async function request(key, params) {
     const controller=new AbortController(); controllers.add(controller)
