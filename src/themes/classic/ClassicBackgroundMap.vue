@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { onMounted, onBeforeUnmount, ref, watch, nextTick } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -108,4 +108,3 @@ watch(() => props.wheelVisible, async () => {
 onBeforeUnmount(() => { clearTimeout(timer);cancelAnimationFrame(resizeFrame);resizeObserver?.disconnect();for(const event of ['wheel','touchstart','keydown']) el.value?.removeEventListener(event,markManual);map?.remove() })
 </script>
 <template><div ref="el" class="map-canvas" role="region" aria-label="식당 지도 · 드래그로 이동하고 휠로 확대·축소"></div></template>
-
