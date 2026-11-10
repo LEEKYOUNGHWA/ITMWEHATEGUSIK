@@ -5,6 +5,15 @@ export function useTimeline(state, boxes, notify, visible = () => true) {
   const meta = reactive(Object.fromEntries(['history','chat'].map(key => [key, { total: 0, hasMore: false, loading: false, error: '', unseen: 0, initialized: false, follow: true, savedTop: 0 }])))
   const controllers = new Set(), syncing = new Set(), pendingSync = new Map()
   const field = key => key === 'chat' ? 'chats' : 'history'
+  const chatUpdates = new Map()
+  const currentChats = items => items.map(row => { const update = chatUpdates.get(row.id); return update && (update.revision || 0) >= (row.revision || 0) ? { ...row, ...update } : row })
+  function reviseChat(row) {
+    if ((row.revision || 0) < (chatUpdates.get(row.id)?.revision || 0)) return
+    chatUpdates.set(row.id, { id: row.id, text: row.text, revision: row.revision, editedAt: row.editedAt, deleted: row.deleted, deletedAt: row.deletedAt })
+    const follow = bottom('chat'), anchor = capture('chat')
+    state.chats = currentChats(state.chats)
+    if (follow) latest('chat'); else restore('chat', anchor)
+  }
   const bottom = key => { const box=boxes[key].value; return !box || box.scrollHeight-box.scrollTop-box.clientHeight < 80 }
   function capture(key) {
     const box=boxes[key].value
@@ -22,6 +31,7 @@ export function useTimeline(state, boxes, notify, visible = () => true) {
     if(box?.clientHeight) { box.scrollTop=box.scrollHeight; meta[key].unseen=0; meta[key].initialized=true }
   }
   function append(key, items, own = false) {
+    if (key === 'chat') items = currentChats(items)
     const follow=own || (boxes[key].value?.clientHeight ? bottom(key) : meta[key].follow), anchor=follow?null:capture(key), rows=state[field(key)], known=new Set(rows.map(row=>row.id))
     state[field(key)]=mergeRecords(rows,items)
     const fresh=items.filter(row=>!known.has(row.id) && visible(key,row)).length
@@ -51,6 +61,7 @@ export function useTimeline(state, boxes, notify, visible = () => true) {
     finally { syncing.delete(key) }
   }
   function absorb(snapshot) {
+    for (const row of snapshot.chatUpdates || []) reviseChat(row)
     for(const key of ['history','chat']) {
       const items=snapshot[field(key)]
       if(!items)continue
@@ -70,7 +81,7 @@ export function useTimeline(state, boxes, notify, visible = () => true) {
     try {
       const page=await request(key,{before:rows[0].id})
       const anchor=capture(key)
-      state[field(key)]=mergeRecords(state[field(key)],page.items,true)
+      state[field(key)]=mergeRecords(state[field(key)],key === 'chat' ? currentChats(page.items) : page.items,true)
       info.hasMore=page.hasMore;info.total=page.total;info.loading=false
       await restore(key,anchor)
     } catch(e) { if(e.name!=='AbortError')info.error='이전 기록을 불러오지 못했습니다.' }
@@ -87,5 +98,5 @@ export function useTimeline(state, boxes, notify, visible = () => true) {
   async function show(key) { await nextTick();if(!meta[key].initialized||meta[key].follow)await latest(key);else if(boxes[key].value)boxes[key].value.scrollTop=meta[key].savedTop }
   function retry(key) { const pending=pendingSync.get(key);if(pending){meta[key].error='';return catchUp(key,pending.after,pending.target)}return older(key) }
   function stop(){for(const controller of controllers)controller.abort()}
-  return {meta,absorb,append,older,retry,scroll,latest,hide,show,stop}
+  return {meta,absorb,append,reviseChat,older,retry,scroll,latest,hide,show,stop}
 }

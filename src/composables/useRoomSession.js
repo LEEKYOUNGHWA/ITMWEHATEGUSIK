@@ -22,7 +22,7 @@ export function createRoomSession({
   })
   const state = reactive({
     restaurants: [], catalogVersion: 0, rooms: { coffee: emptyRoom(), lunch: emptyRoom() },
-    history: [], chats: [], people: [], sourceStatus: { ready: false, busy: false }
+    history: [], chats: [], people: [], selfProfileId: '', sourceStatus: { ready: false, busy: false }
   })
   const connected = ref(false), initialized = ref(false), hasRooms = ref(false)
   const selfId = ref(''), serverOffset = ref(0), saving = ref(false)
@@ -76,6 +76,7 @@ export function createRoomSession({
       case 'welcome':
         absorb(message)
         selfId.value = message.self.id
+        state.selfProfileId = message.self.profileId || ''
         profile.name = message.self.name
         profile.emoji = message.self.emoji
         writePreference('lunch-profile', JSON.stringify(profile))
@@ -124,6 +125,9 @@ export function createRoomSession({
         if (person) person.cursor = message.cursor
         break
       }
+      case 'chat-update':
+        timeline.reviseChat(message.chat)
+        break
       case 'chat': {
         if (!state.chats.some(item => item.id === message.chat.id)) timeline.meta.chat.total++
         const own = message.chat.personId === selfId.value
@@ -179,6 +183,17 @@ export function createRoomSession({
     text = text.trim()
     if (text) connection.send('chat', { text, requestId: requestId() })
   }
+  async function changeChat(row, text) {
+    if (!connected.value) throw new Error('서버에 연결된 후 다시 시도해 주세요.')
+    const response = await fetch(`/api/chat/${encodeURIComponent(row.id)}`, {
+      method: text === undefined ? 'DELETE' : 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision: row.revision || 0, ...(text === undefined ? {} : { text }) })
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || '메시지를 변경하지 못했습니다.')
+    timeline.reviseChat(data.chat)
+  }
   function saveCatalog(payload) {
     if (!ready.value || saving.value) return
     catalogRequestId = requestId()
@@ -210,7 +225,7 @@ export function createRoomSession({
 
   return {
     state, profile, connected, initialized, selfId, serverOffset, saving, ready, roomState, timeline,
-    updateOptions, selectRestaurant, spin, chat, saveCatalog, reloadSource, profileSaved, sync,
+    updateOptions, selectRestaurant, spin, chat, changeChat, saveCatalog, reloadSource, profileSaved, sync,
     send: connection.send, start: connection.start, stop
   }
 }

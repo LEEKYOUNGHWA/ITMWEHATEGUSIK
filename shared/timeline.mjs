@@ -15,7 +15,7 @@ export function mergeRecords(current, incoming, prepend = false) {
   const updates = new Map(incoming.map(row => [row.id, row]))
   const existing = new Set(current.map(row => row.id))
   const fresh = incoming.filter(row => !existing.has(row.id))
-  const revised = current.map(row => updates.get(row.id) || row)
+  const revised = current.map(row => { const next = updates.get(row.id); return next && (next.revision || 0) >= (row.revision || 0) ? next : row })
   const result = prepend ? [...fresh, ...revised] : [...revised, ...fresh]
   return result.sort((a,b) => Number.isFinite(a.sequence) && Number.isFinite(b.sequence) ? a.sequence-b.sequence : a.at-b.at)
 }

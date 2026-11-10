@@ -42,6 +42,7 @@ export class Store {
   run(operation) { const result = this.queue.then(operation); this.queue = result.catch(() => {}); return result }
   set(name, value) { return this.run(async () => { const file = path.join(this.directory, name); const temp = file + '.tmp'; await writeFile(temp, JSON.stringify(value, null, 2) + '\n', 'utf8'); await rename(temp, file) }) }
   append(name, value) { return this.run(() => appendFile(path.join(this.directory, name), JSON.stringify(value) + '\n', 'utf8')) }
+  replaceLines(name, rows) { return this.run(async () => { const file = path.join(this.directory, name), temp = file + '.tmp'; await writeFile(temp, rows.map(row => JSON.stringify(row)).join('\n') + '\n', 'utf8'); await rename(temp, file) }) }
 }
 export function createSpin(ids, angle, actor, duration = 4200) {
   const winnerIndex = randomInt(ids.length)

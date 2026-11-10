@@ -29,7 +29,7 @@ async function component(file) {
   return url
 }
 function host() {
-  const make = tag => ({ tag, children: [], props: {}, parent: null, text: '', focus() {}, select() {} })
+  const make = tag => ({ tag, children: [], props: {}, parent: null, text: '', style: {}, scrollHeight: 34, focus() {}, select() {} })
   const body = make('body'), root = make('root')
   function insert(node, parent, anchor) {
     if (node.parent) { const index = node.parent.children.indexOf(node); if (index >= 0) node.parent.children.splice(index, 1) }
@@ -62,6 +62,7 @@ test('all themes use one workspace and expose the same room-filtered records and
     return { ok: true, json: async () => ({ publicOrigin: 'https://lunch.example', teamsUrl: '' }) }
   }
   globalThis.document = {
+    addEventListener() {}, removeEventListener() {},
     activeElement: { focus() {} }, body: { append() {} },
     createElement() { temporaryTextarea = { style: {}, setAttribute() {}, focus() {}, select() {}, remove() {} }; return temporaryTextarea },
     execCommand(command) { assert.equal(command, 'copy'); copied = temporaryTextarea.value; return true }
