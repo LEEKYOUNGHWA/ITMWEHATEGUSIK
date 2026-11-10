@@ -1,6 +1,7 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, inject, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import ResultShare from './ResultShare.vue'
+import { shouldSendChat } from './services/chatInput.js'
 
 const props = defineProps({
   currentRoom: { type: String, required: true },
@@ -12,6 +13,49 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue', 'chat'])
 const historyBox = ref(null), chatBox = ref(null)
+const { changeChat } = inject('workspace')
+const composer = ref(null), editor = ref(null), menuElement = ref(null), action = ref(null), editText = ref(''), busy = ref(false), actionError = ref('')
+const mine = row => row.profileId ? row.profileId === props.state.selfProfileId : row.personId === props.selfId
+function resizeComposer() {
+  if (!composer.value) return
+  composer.value.style.height = 'auto'
+  composer.value.style.height = `${Math.min(composer.value.scrollHeight, 144)}px`
+}
+watch(() => props.modelValue, () => nextTick(resizeComposer))
+function composerKey(event) {
+  if (shouldSendChat(event)) { event.preventDefault(); if (props.connected && props.modelValue.trim()) emit('chat') }
+}
+async function openMenu(event, row) {
+  if (!mine(row) || row.deleted) return
+  event.preventDefault()
+  actionError.value = ''
+  const x = event.clientX, y = event.clientY
+  action.value = { mode: 'menu', row: { ...row }, x: Math.max(8, x - 168), y: Math.max(8, y - 104) }
+  await nextTick()
+  if (action.value?.mode !== 'menu' || action.value.row.id !== row.id) return
+  const bounds = menuElement.value?.getBoundingClientRect()
+  action.value.x = Math.max(8, Math.min(x - (bounds?.width || 160) - 8, window.innerWidth - (bounds?.width || 160) - 8))
+  action.value.y = Math.max(8, Math.min(y - (bounds?.height || 96) - 8, window.innerHeight - (bounds?.height || 96) - 8))
+}
+async function choose(mode) {
+  action.value = { ...action.value, mode }
+  actionError.value = ''
+  editText.value = action.value.row.text
+  await nextTick()
+  if (mode === 'edit') editor.value?.focus()
+}
+function closeAction() { if (!busy.value) { action.value = null; actionError.value = '' } }
+function outside(event) { if (action.value?.mode === 'menu' && !event.target.closest('.chat-context-menu')) closeAction() }
+function escape(event) { if (event.key === 'Escape' && action.value) { event.stopPropagation(); closeAction() } }
+async function saveAction() {
+  if (!action.value || busy.value) return
+  busy.value = true; actionError.value = ''
+  try { await changeChat(action.value.row, action.value.mode === 'edit' ? editText.value : undefined); action.value = null }
+  catch (error) { actionError.value = error.message }
+  finally { busy.value = false }
+}
+onMounted(() => { resizeComposer(); document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape) })
+onBeforeUnmount(() => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) })
 const roomHistory = computed(() => props.state.history.filter(record => (record.room || 'lunch') === props.currentRoom))
 const roomName = computed(() => props.currentRoom === 'coffee' ? '커피' : '점심')
 defineExpose({ historyBox, chatBox })
@@ -51,20 +95,50 @@ const formatTime = at => new Date(at).toLocaleString('ko-KR', {
         <button v-else-if="timeline.meta.chat.error" class="timeline-retry" @click="timeline.retry('chat')">{{ timeline.meta.chat.error }} 다시 시도</button>
         <button v-else-if="timeline.meta.chat.hasMore" class="timeline-retry" @click="timeline.older('chat')">이전 대화 더 보기 ↑</button>
         <div v-if="!state.chats.length" class="records-empty"><span aria-hidden="true">💬</span><b>오늘은 뭐 먹을까요?</b><p>어느 방에 있어도 대화는 함께해요.</p></div>
-        <article v-for="c in state.chats" :key="c.id" :data-record="c.id" class="conversation" :class="{ mine: c.personId === selfId }">
-          <span class="conversation-avatar" aria-hidden="true">{{ c.emoji }}</span><div class="conversation-author"><span>{{ c.name }}</span><time>{{ formatTime(c.at) }}</time></div><p>{{ c.text }}</p>
+        <article v-for="c in state.chats" :key="c.id" :data-record="c.id" class="conversation" :class="{ mine: mine(c) }" @contextmenu="openMenu($event, c)">
+          <span class="conversation-avatar" aria-hidden="true">{{ c.emoji }}</span><div class="conversation-author"><span>{{ c.name }}</span><time>{{ formatTime(c.at) }}{{ c.editedAt && !c.deleted ? ' · 수정됨' : '' }}</time><button v-if="mine(c) && !c.deleted" class="chat-more" type="button" aria-label="내 메시지 수정 또는 삭제" @click="openMenu($event, c)">⋯</button></div><p :class="{ 'chat-deleted': c.deleted }">{{ c.deleted ? '삭제된 메시지입니다.' : c.text }}</p>
         </article>
       </div>
       <button v-if="timeline.meta.chat.unseen" class="records-new" @click="timeline.latest('chat')">새 메시지 {{ timeline.meta.chat.unseen }}개 ↓</button>
       <footer class="records-composer">
-        <form @submit.prevent="emit('chat')"><input :value="modelValue" maxlength="200" :disabled="!connected" placeholder="오늘의 점심 이야기를 나눠요" aria-label="채팅 메시지" @input="emit('update:modelValue', $event.target.value)"><button :disabled="!connected || !modelValue.trim()" type="submit" aria-label="메시지 보내기">↑</button></form>
-        <small>Enter로 전송 · 모두에게 보이는 대화예요</small>
+        <form @submit.prevent="emit('chat')"><textarea ref="composer" :value="modelValue" rows="1" maxlength="2000" :disabled="!connected" placeholder="오늘의 점심 이야기를 나눠요" aria-label="채팅 메시지" aria-describedby="chat-input-help" @keydown="composerKey" @input="emit('update:modelValue', $event.target.value); resizeComposer()"></textarea><button :disabled="!connected || !modelValue.trim()" type="submit" aria-label="메시지 보내기">↑</button></form>
+        <small id="chat-input-help">Enter 전송 · Shift+Enter 줄바꿈 · 최대 2,000자</small>
       </footer>
     </section>
   </div>
+  <Teleport to="body">
+    <div v-if="action?.mode === 'menu'" ref="menuElement" class="chat-context-menu" role="menu" aria-label="내 메시지" :style="{ left: action.x + 'px', top: action.y + 'px' }">
+      <button type="button" role="menuitem" :disabled="!connected" @click="choose('edit')">✎ 수정</button>
+      <button type="button" role="menuitem" :disabled="!connected" @click="choose('delete')">삭제</button>
+    </div>
+    <div v-else-if="action" class="chat-dialog-backdrop" @click.self="closeAction">
+      <form class="chat-action-dialog" role="dialog" aria-modal="true" aria-labelledby="chat-action-title" @submit.prevent="saveAction">
+        <h2 id="chat-action-title">{{ action.mode === 'edit' ? '메시지 수정' : '메시지 삭제' }}</h2>
+        <template v-if="action.mode === 'edit'"><textarea ref="editor" v-model="editText" maxlength="2000" rows="6" :disabled="busy" aria-label="수정할 메시지" @keydown="event => { if (shouldSendChat(event)) { event.preventDefault(); if (editText.trim()) saveAction() } }"></textarea><small>Enter 저장 · Shift+Enter 줄바꿈</small></template>
+        <p v-else>이 메시지를 삭제할까요? 대화에는 삭제된 메시지로 표시됩니다.</p>
+        <p v-if="actionError" role="alert" class="chat-action-error">{{ actionError }}</p>
+        <div class="chat-dialog-actions"><button type="button" :disabled="busy" @click="closeAction">취소</button><button type="submit" :disabled="busy || !connected || (action.mode === 'edit' && !editText.trim())">{{ busy ? '저장 중…' : action.mode === 'edit' ? '저장' : '삭제' }}</button></div>
+      </form>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
+.chat-more { border:0; background:transparent; color:var(--mut); cursor:pointer; padding:0 4px; font-size:18px; }
+.conversation p.chat-deleted { color:var(--mut); font-style:italic; }
+.chat-context-menu { position:fixed; z-index:4000; display:grid; width:160px; padding:5px; background:var(--card,#fff); color:var(--fg,#222); border:1px solid var(--line,#ddd); border-radius:10px; box-shadow:0 6px 24px #0003; }
+.chat-context-menu button { border:0; border-radius:6px; background:transparent; color:inherit; text-align:left; padding:10px 14px; font-size:13px; }
+.chat-context-menu button:hover,.chat-context-menu button:focus-visible { background:var(--soft,#eee); }
+.chat-dialog-backdrop { position:fixed; inset:0; z-index:4100; display:grid; place-items:center; background:#0005; padding:20px; }
+.chat-action-dialog { width:min(100%,440px); padding:22px; background:var(--card,#fff); color:var(--fg,#222); border:1px solid var(--line,#ddd); border-radius:14px; box-shadow:0 12px 40px #0003; }
+.chat-action-dialog h2 { font-size:17px; margin:0 0 16px; }
+.chat-action-dialog textarea { width:100%; min-height:140px; max-height:50dvh; resize:vertical; padding:12px; border:1px solid var(--line,#ddd); border-radius:8px; font:inherit; font-size:13px; line-height:1.7; color:inherit; background:var(--soft,#f5f5f5); }
+.chat-action-dialog small { color:var(--mut,#666); font-size:11px; }
+.chat-action-dialog p { font-size:13px; line-height:1.7; }
+.chat-action-dialog .chat-action-error { color:#bf2525; }
+.chat-dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+.chat-dialog-actions button { padding:8px 16px; border:1px solid var(--line,#ddd); border-radius:7px; color:inherit; background:var(--soft,#eee); }
+.chat-dialog-actions button[type=submit] { background:var(--acc,#d44); color:#fff; border-color:transparent; }
 .records-stack {
   display:grid;
   grid-template-rows:minmax(180px,42fr) minmax(260px,58fr);
@@ -308,7 +382,7 @@ const formatTime = at => new Date(at).toLocaleString('ko-KR', {
 .records-composer form:focus-within {
   border-color:var(--acc)
 }
-.records-composer input {
+.records-composer textarea {
   width:0;
   flex:1;
   min-width:0;
@@ -316,7 +390,13 @@ const formatTime = at => new Date(at).toLocaleString('ko-KR', {
   background:transparent;
   padding:7px;
   font-size:12px;
-  color:var(--fg)
+  color:var(--fg);
+  font-family:inherit;
+  line-height:1.6;
+  min-height:34px;
+  max-height:144px;
+  resize:none;
+  overflow-y:auto
 }
 .records-composer button {
   width:32px;

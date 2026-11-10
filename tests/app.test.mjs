@@ -9,6 +9,33 @@ import { WebSocket } from 'ws'
 import { createSpin, pickedId, loadRestaurants, Store, readLines, readJson, IpProfiles, normalizeIp } from '../server/model.mjs'
 const fixtureCatalog=Array.from({length:12},(_,i)=>({id:'fixture'+i,room:'lunch',name:'식당'+i,lat:37.520814+i*.00001,lng:126.88904}));
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')
+test('multiline chat edits and deletes broadcast, enforce ownership, and persist across restart',()=>temporary(async dir=>{
+  await writeFile(path.join(dir,'profiles.json'),JSON.stringify({'127.0.0.1':{id:'owner',name:'작성자',emoji:'🐱'}}))
+  const rows=Array.from({length:60},(_,i)=>({id:'old'+i,profileId:i===0?'owner':'other',personId:'old-session',name:'테스트',emoji:'🐱',text:'원문'+i,at:i+1}))
+  await writeFile(path.join(dir,'chat.jsonl'),rows.map(row=>JSON.stringify(row)).join('\n')+'\n')
+  let app=await start(dir), peers=[]
+  try {
+    const a=await client(app.port,'작성자'), b=await client(app.port,'다른탭');peers=[a,b]
+    assert.equal(a.welcome.self.profileId,'owner')
+    const change=(method,id,body)=>fetch(`http://127.0.0.1:${app.port}/api/chat/${id}`,{method,headers:{'content-type':'application/json'},body:JSON.stringify(body)})
+    assert.equal((await change('PATCH','old1',{revision:0,text:'도용'})).status,403)
+    const text='📢 업데이트\n\n첫 줄\n둘째 줄 '+ '가'.repeat(250)
+    assert.equal((await change('PATCH','old0',{revision:0,text})).status,200)
+    assert.equal((await b.wait('chat-update',m=>m.chat.id==='old0'&&m.chat.revision===1)).chat.text,text)
+    a.send('chat',{text,requestId:'multiline-new'})
+    const sent=(await b.wait('chat')).chat
+    assert.equal(sent.text,text)
+    assert.equal((await change('DELETE','old0',{revision:1})).status,200)
+    assert.equal((await b.wait('chat-update',m=>m.chat.id==='old0'&&m.chat.deleted)).chat.text,'')
+    for(const peer of peers)peer.ws.close();await app.stop();app=null
+    app=await start(dir);const restored=await client(app.port,'복구');peers=[restored]
+    assert.equal(restored.welcome.chatUpdates.find(row=>row.id==='old0').deleted,true)
+    assert.equal(restored.welcome.chats.find(row=>row.id===sent.id).text,text)
+    const page=await (await fetch(`http://127.0.0.1:${app.port}/api/timeline/chat?before=old10`)).json()
+    assert.equal(page.items.find(row=>row.id==='old0').text,'')
+    assert.equal((await change('PATCH','old0',{revision:2,text:'복원'})).status,409)
+  } finally {for(const peer of peers)peer.ws.close();if(app)await app.stop()}
+}))
 async function temporary(fn) { const dir=await mkdtemp(path.join(tmpdir(),'lunch-wheel-test-'));try { return await fn(dir) } finally { if(!path.resolve(dir).startsWith(path.resolve(tmpdir())+path.sep))throw new Error('unsafe temp path');await rm(dir,{recursive:true,force:true}) } }
 test('당첨 식당과 최종 돌림판 포인터가 2~30개 후보에서 일치한다',()=>{
   for(let n=2;n<=30;n++)for(let k=0;k<60;k++){const s=createSpin(Array.from({length:n},(_,i)=>'r'+i),Math.random()*100,{name:'테스트',emoji:'🧑‍🍳'});assert.equal(pickedId(s),s.winnerId);assert.ok(s.endAngle>s.startAngle)}

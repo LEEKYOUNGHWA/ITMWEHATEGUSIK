@@ -60,7 +60,7 @@ watch(() => [recordsOpen.value, isHome.value], ([open, home], previous = []) => 
 
 provide('workspace', {
   state, profile, connected, selfId, saving, currentRoom, effects,
-  saveCatalog, reloadSource, profileSaved, setEffects, notify, ...themeState
+  saveCatalog, reloadSource, profileSaved, changeChat: session.changeChat, setEffects, notify, ...themeState
 })
 </script>
 

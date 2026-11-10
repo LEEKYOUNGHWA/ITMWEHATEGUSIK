@@ -1,4 +1,4 @@
-﻿import http from 'node:http'
+import http from 'node:http'
 import { readFile, mkdir, writeFile, access } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,7 @@ import { validateSharing } from '../shared/sharing.mjs'
 import { pageRecords } from '../shared/timeline.mjs'
 import { ConnectionHistory, describeAgent } from './connections.mjs'
 import { handleAccount } from './account-http.mjs'
+import { handleChat } from './chat-http.mjs'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, 'data')
 const catalogFile = path.resolve(process.env.RESTAURANTS_FILE || path.join(dataDir, 'restaurants.json'))
@@ -77,10 +78,10 @@ function roomView(key) {
   return {...rooms[key],poolSize:rows.length,effectiveIds:preview.map(r=>r.id),previewRestaurants:preview,spin:withActor(rooms[key].spin),lastResult:withActor(rooms[key].lastResult)}
 }
 const roomSnapshots = () => Object.fromEntries(ROOM_IDS.map(key => [key, roomView(key)]))
-const snapshot = () => ({ serverNow: Date.now(), restaurants: catalogView(), sourceStatus: sourceStatus(), catalogVersion, rooms: roomSnapshots(), selectedIds: rooms.lunch.selectedIds, angle: rooms.lunch.angle, spin: withActor(rooms.lunch.spin), lastResult: withActor(rooms.lunch.lastResult), history: history.slice(-50).map(withActor), chats: chats.slice(-50).map(c => profiles.current(c)), timeline: { history: { ...pageRecords(history), items: undefined }, chat: { ...pageRecords(chats), items: undefined } }, people: people() })
+const snapshot = () => ({ chatUpdates: chats.filter(row => row.revision).map(({id,text,revision,editedAt,deleted,deletedAt}) => ({id,text,revision,editedAt,deleted,deletedAt})), serverNow: Date.now(), restaurants: catalogView(), sourceStatus: sourceStatus(), catalogVersion, rooms: roomSnapshots(), selectedIds: rooms.lunch.selectedIds, angle: rooms.lunch.angle, spin: withActor(rooms.lunch.spin), lastResult: withActor(rooms.lunch.lastResult), history: history.slice(-50).map(withActor), chats: chats.slice(-50).map(c => profiles.current(c)), timeline: { history: { ...pageRecords(history), items: undefined }, chat: { ...pageRecords(chats), items: undefined } }, people: people() })
 function publishProfile(ip,identity) {
   for(const peer of clients.values())if(peer.ip===ip&&peer.joined){peer.name=identity.name;peer.emoji=identity.emoji;if(identity.id)peer.profileId=identity.id}
-  for(const [peerSocket,peer]of clients)if(peer.ip===ip&&peer.joined)send(peerSocket,'welcome',{self:{id:peer.id,name:peer.name,emoji:peer.emoji},...snapshot()})
+  for(const [peerSocket,peer]of clients)if(peer.ip===ip&&peer.joined)send(peerSocket,'welcome',{self:{id:peer.id,profileId:peer.profileId,name:peer.name,emoji:peer.emoji},...snapshot()})
   broadcast('people',{people:people()});if(identity.id)broadcast('rename',{profileId:identity.id,name:identity.name,emoji:identity.emoji})
 }
 const error = (ws, message, requestId) => send(ws, 'error', { message, requestId })
@@ -120,6 +121,11 @@ server.on('request', async (req, res) => {
     const url = new URL(req.url, 'http://localhost')
     res.setHeader('X-Content-Type-Options', 'nosniff')
     if(await handleAccount(req,res,{profiles,clients,connections,publishProfile}))return
+    if(await handleChat(req,res,{chats,profiles,store,mutate,publish: row => {
+      for (const peer of clients.values()) if (peer.profileId === row.profileId && peer.messageAt === row.at) peer.message = row.text
+      broadcast('chat-update', { chat: profiles.current(row) })
+      broadcast('people', { people: people() })
+    }}))return
     if (url.pathname === '/api/timeline/history' || url.pathname === '/api/timeline/chat') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.setHeader('Cache-Control', 'no-store')
       if (req.method !== 'GET') { res.statusCode=405; res.setHeader('Allow','GET'); return res.end(JSON.stringify({error:'GET only'})) }
@@ -202,7 +208,7 @@ wss.on('connection', (ws, req) => {
         catch (e) { diskError(e); identity = { name: p.name, emoji: p.emoji } }
         if (ws.readyState !== WebSocket.OPEN) return
         p.joined = true; clearTimeout(joinTimeout)
-        if (m.type === 'join') { p.message = typeof identity.lastMessage === 'string' ? identity.lastMessage : ''; p.messageAt = identity.lastMessageAt || 0 }
+        if (m.type === 'join') { const last = chats.findLast(row => row.profileId === identity.id); p.message = last ? last.text : ''; p.messageAt = last?.at || 0 }
         if(identity.id&&!p.historyRecorded){p.historyRecorded=true;connections.record({...p,profileId:identity.id}).catch(error=>console.error('접속 이력 저장 실패:',error.message))}
         publishProfile(p.ip,identity);return
       }
@@ -216,20 +222,21 @@ wss.on('connection', (ws, req) => {
         broadcast('cursor', { id: p.id, cursor: p.cursor }, ws); return
       }
       if (m.type === 'chat') {
-        const text = typeof m.text === 'string' ? m.text.trim().slice(0, 200) : ''
+        const text = typeof m.text === 'string' ? m.text.trim() : ''
+        if (text.length > 2000) return error(ws, '메시지는 2000자까지 입력할 수 있습니다.')
         if (!text) return
         if (now - p.lastChat < 600) return error(ws, '메시지는 잠깐 간격을 두고 보내주세요.')
         const id = typeof m.requestId === 'string' ? m.requestId.slice(0,80) : ''
         if (!id || requests.has('chat:' + id)) return
         p.lastChat = now; requests.set('chat:' + id, now)
         const row = { id: randomUUID(), text, at: now, personId: p.id, profileId: p.profileId, name: p.name, emoji: p.emoji, color: p.color }
-        try {
+        await mutate(async () => { try {
           await store.append('chat.jsonl', row); row.sequence=chats.length; chats.push(row)
           try { await profiles.rememberMessage(p.ip, text, now) } catch(e) { diskError(e) }
           for (const peer of clients.values()) if (peer.ip === p.ip) { peer.message = text; peer.messageAt = now }
           broadcast('chat', { chat: row }); broadcast('people', { people: people() })
         }
-        catch(e) { requests.delete('chat:' + id); diskError(e) }
+        catch(e) { requests.delete('chat:' + id); diskError(e) } })
         return
       }
       if (m.type === 'source-reload') {
