@@ -462,7 +462,7 @@ test('관리 페이지 일반 URL은 운영과 개발 서버에서 직접 접속
     for(const dev of [false,true]){
       const app=await start(dir,dev)
       try{
-        for(const route of ['/profile','/places','/settings']){const response=await fetch('http://127.0.0.1:'+app.port+route);assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/text\/html/);assert.match(await response.text(),/id="app"/)}
+        for(const route of ['/profile','/places','/settings','/christmas']){const response=await fetch('http://127.0.0.1:'+app.port+route);assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/text\/html/);assert.match(await response.text(),/id="app"/)}
         assert.equal((await fetch('http://127.0.0.1:'+app.port+'/unknown-page')).status,404)
         assert.equal((await fetch('http://127.0.0.1:'+app.port+'/data/profiles.json')).status,404)
       }finally{await app.stop()}
@@ -492,6 +492,5 @@ test('christmas websocket shares keyboard movement and restores decorations',()=
     app=await start(dir);const restored=await client(app.port,'reconnect');peers=[restored];restored.send('christmas-join')
     assert.equal((await restored.wait('christmas-state')).items[0].id,'shared-gift')
     assert.deepEqual((await restored.wait('christmas-people')).people[0].position,[-2.6,0,2.4])
-    assert.equal((await fetch('http://127.0.0.1:'+app.port+'/christmas')).status,200)
   }finally{for(const p of peers)p.ws.close();if(app)await app.stop()}
 }))
