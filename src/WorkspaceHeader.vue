@@ -2,7 +2,8 @@
 import { inject } from 'vue'
 const { theme, themeSaving, themeError, selectTheme, connected, notify } = inject('workspace', {})
 import AvatarMenu from './AvatarMenu.vue'
-import { ROOM_VIEWS as viewOptions } from './composables/useWorkspaceLayout.js'
+import { ROOM_VIEWS } from './composables/useWorkspaceLayout.js'
+const viewOptions=[...ROOM_VIEWS,{id:'christmas',label:'트리방',icon:'🎄'}]
 defineProps(['isHome', 'profile', 'activeView'])
 const emit = defineEmits(['choose-view'])
 

@@ -73,3 +73,10 @@
   .lunch-app .workspace-header .room-tabs { grid-row: 2; grid-column: 1 / -1; justify-self: start; }
   .lunch-app .workspace-header .room-tabs button { height: 34px; min-width: 92px; font-size: 12px; }
 }
+
+/* Tree room shares the same room navigation, with the scene visible behind it. */
+.lunch-app.christmas-view .workspace-header.topbar.workspace-header{background:transparent!important;border:0!important;box-shadow:none!important;backdrop-filter:none!important;z-index:1400}
+.lunch-app.christmas-view .workspace-header::before,.lunch-app.christmas-view .workspace-header::after{display:none!important}
+.lunch-app.christmas-view .workspace-header .room-tabs{background:transparent!important;border:0!important;box-shadow:none!important}
+.lunch-app.christmas-view .workspace-header .room-tabs button{color:#526c58;text-shadow:0 1px 3px #fff8}
+.lunch-app.christmas-view .workspace-header .room-tabs button.active{background:#f9fcf1b8!important;color:#355b43!important;border-color:#8da487!important;border-radius:10px}

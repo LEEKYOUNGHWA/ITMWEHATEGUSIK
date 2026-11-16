@@ -471,3 +471,27 @@ test('관리 페이지 일반 URL은 운영과 개발 서버에서 직접 접속
     if(created){try{if(await readFile(indexFile,'utf8')===fixture)await fileSystem.unlink(indexFile)}catch(error){if(error.code!=='ENOENT')throw error}}
   }
 }))
+
+
+test('christmas websocket shares keyboard movement and restores decorations',()=>temporary(async dir=>{
+  let app=await start(dir),peers=[]
+  try{
+    const a=await client(app.port,'decorate'),b=await client(app.port,'watch');peers=[a,b]
+    a.send('christmas-join');b.send('christmas-join')
+    await b.wait('christmas-people',m=>m.people.length===2)
+    const item={kind:'furniture',tool:'gift',color:'#e87b77',message:'merry christmas',position:[2,0,2],rotation:0}
+    a.send('christmas-add',{requestId:'shared-gift',item})
+    assert.equal((await b.wait('christmas-state',m=>m.requestId==='shared-gift')).items[0].message,item.message)
+    a.send('christmas-position',{position:[0,0,2.5]})
+    assert.deepEqual((await b.wait('christmas-position')).position,[0,0,2.5])
+    b.send('christmas-join')
+    const walking=await b.wait('christmas-people',m=>m.people.some(p=>p.position[0]===0&&p.position[2]===2.5))
+    assert.ok(walking.people.some(p=>p.position[0]===0&&p.position[2]===2.5))
+    a.send('christmas-leave');await b.wait('christmas-people',m=>m.people.length===1)
+    for(const p of peers)p.ws.close();await app.stop();app=null
+    app=await start(dir);const restored=await client(app.port,'reconnect');peers=[restored];restored.send('christmas-join')
+    assert.equal((await restored.wait('christmas-state')).items[0].id,'shared-gift')
+    assert.deepEqual((await restored.wait('christmas-people')).people[0].position,[-2.6,0,2.4])
+    assert.equal((await fetch('http://127.0.0.1:'+app.port+'/christmas')).status,200)
+  }finally{for(const p of peers)p.ws.close();if(app)await app.stop()}
+}))
