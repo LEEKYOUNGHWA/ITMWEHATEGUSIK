@@ -6,6 +6,7 @@ import PreferencesPage from './PreferencesPage.vue'
 export default createRouter({
   history: createWebHistory(),
   routes: [
+    { path: '/christmas', component: () => import('./ChristmasPage.vue') },
     { path: '/', component: { render: () => null } },
     { path: '/profile', component: ProfilePage },
     { path: '/places', component: PlacesPage },

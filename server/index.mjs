@@ -14,6 +14,7 @@ import { pageRecords } from '../shared/timeline.mjs'
 import { ConnectionHistory, describeAgent } from './connections.mjs'
 import { handleAccount } from './account-http.mjs'
 import { handleChat } from './chat-http.mjs'
+import { createChristmas } from './christmas.mjs'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, 'data')
 const catalogFile = path.resolve(process.env.RESTAURANTS_FILE || path.join(dataDir, 'restaurants.json'))
@@ -57,6 +58,7 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 16384 })
 const send = (ws, type, payload) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, ...payload })) }
 const broadcast = (type, payload, except) => { for (const ws of clients.keys()) if (ws !== except) send(ws, type, payload) }
 const people = () => [...clients.values()].filter(p => p.joined).map(({ id, name, emoji, color, cursor, message, messageAt }) => ({ id, name, emoji, color, cursor, message, messageAt }))
+const christmas = await createChristmas({store,clients,send,mutate})
 const settings = (overrides = {}) => ({ rooms: Object.fromEntries(ROOM_IDS.map(key => [key, { selectedIds: rooms[key].selectedIds, radiusKm: rooms[key].radiusKm, randomMode: rooms[key].randomMode, angle: rooms[key].angle, completedWheel: rooms[key].completedWheel, activeSpin: rooms[key].spin, ...overrides[key] }])) })
 // Lunch aliases let already-open clients reconnect during this update.
 const withActor = row => row && { ...row, actor: profiles.current(row.actor) }
@@ -83,6 +85,7 @@ function publishProfile(ip,identity) {
   for(const peer of clients.values())if(peer.ip===ip&&peer.joined){peer.name=identity.name;peer.emoji=identity.emoji;if(identity.id)peer.profileId=identity.id}
   for(const [peerSocket,peer]of clients)if(peer.ip===ip&&peer.joined)send(peerSocket,'welcome',{self:{id:peer.id,profileId:peer.profileId,name:peer.name,emoji:peer.emoji},...snapshot()})
   broadcast('people',{people:people()});if(identity.id)broadcast('rename',{profileId:identity.id,name:identity.name,emoji:identity.emoji})
+  christmas.presence()
 }
 const error = (ws, message, requestId) => send(ws, 'error', { message, requestId })
 const diskError = e => { console.error('파일 저장 실패:', e); broadcast('error', { message: '파일 저장에 실패했습니다. 디스크 공간과 폴더 권한을 확인하세요.' }) }
@@ -170,13 +173,13 @@ server.on('request', async (req, res) => {
     const servePage = async () => {
       if (dev) { const html = await vite.transformIndexHtml(req.url, await readFile(path.join(root, 'index.html'), 'utf8')); res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(html) }
       else {
-        let file = ['/', '/profile', '/places', '/settings'].includes(url.pathname) ? 'index.html' : decodeURIComponent(url.pathname).slice(1)
+        let file = ['/', '/profile', '/places', '/settings', '/christmas'].includes(url.pathname) ? 'index.html' : decodeURIComponent(url.pathname).slice(1)
         const absolute = path.resolve(root, 'dist', file)
         if (!absolute.startsWith(path.join(root, 'dist') + path.sep)) { res.statusCode = 404; return res.end() }
         try { const contents = await readFile(absolute); const ext = path.extname(file); res.setHeader('Content-Type', ({ '.html':'text/html; charset=utf-8', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.svg':'image/svg+xml', '.woff2':'font/woff2' })[ext] || 'application/octet-stream'); res.end(contents) } catch { res.statusCode = 404; res.end('npm run build 후 npm start를 실행하세요.') }
       }
     }
-    if (dev) vite.middlewares(req, res, err => { if (err) { console.error(err); res.statusCode = 500; return res.end('화면 로딩 오류') }; if (!['/', '/index.html', '/profile', '/places', '/settings'].includes(url.pathname)) { res.statusCode = 404; return res.end('Not found') }; servePage().catch(e => { vite.ssrFixStacktrace(e); console.error(e); res.statusCode = 500; res.end('화면 로딩 오류') }) })
+    if (dev) vite.middlewares(req, res, err => { if (err) { console.error(err); res.statusCode = 500; return res.end('화면 로딩 오류') }; if (!['/', '/index.html', '/profile', '/places', '/settings', '/christmas'].includes(url.pathname)) { res.statusCode = 404; return res.end('Not found') }; servePage().catch(e => { vite.ssrFixStacktrace(e); console.error(e); res.statusCode = 500; res.end('화면 로딩 오류') }) })
     else await servePage()
   } catch (e) { console.error(e); res.statusCode = 500; res.end('서버 오류') }
 })
@@ -192,7 +195,7 @@ wss.on('connection', (ws, req) => {
   const joinTimeout = setTimeout(() => { if (!p.joined) ws.close(1008, 'join timeout') }, 10000)
   ws.on('pong', () => { p.alive = true })
   ws.on('error', () => {})
-  ws.on('close', () => { clearTimeout(joinTimeout); clients.delete(ws); broadcast('people', { people: people() }) })
+  ws.on('close', () => { clearTimeout(joinTimeout); clients.delete(ws); christmas.leave(p); broadcast('people', { people: people() }) })
   ws.on('message', async raw => {
     try {
       let m
@@ -213,6 +216,7 @@ wss.on('connection', (ws, req) => {
         publishProfile(p.ip,identity);return
       }
       if (!p.joined) return
+      if (await christmas.handle(ws,p,m)) return
       if (m.type === 'sync') return send(ws, 'state', snapshot())
       if (m.type === 'ping') return send(ws, 'clock', { serverNow: now, sentAt: m.sentAt })
       if (m.type === 'cursor') {

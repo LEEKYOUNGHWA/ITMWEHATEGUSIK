@@ -2,6 +2,7 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { resultLink, resultText } from '../shared/sharing.mjs'
 import { loadSharingConfig } from './services/sharingConfig.js'
+import { copyText, openTeams } from './services/shareActions.js'
 const props=defineProps({result:Object,resultId:String,compact:Boolean})
 const config=ref(null),savedResult=ref(null),loading=ref(!!props.resultId),error=ref('')
 const opened=ref(false),message=ref(''),copyStatus=ref(''),textBox=ref(null)
@@ -17,15 +18,6 @@ onMounted(async()=>{
     }catch(e){error.value=e.message}finally{loading.value=false}
   }
 })
-function copyText(text){
-  const previous=document.activeElement,box=document.createElement('textarea')
-  box.value=text;box.setAttribute('readonly','');box.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px'
-  document.body.append(box);box.focus();box.select()
-  let copied=false
-  try{copied=document.execCommand('copy')}catch{}
-  finally{box.remove();previous?.focus?.({preventScroll:true})}
-  return copied
-}
 async function selectMessage(){await nextTick();textBox.value?.focus();textBox.value?.select()}
 function share(){
   const result=props.resultId?savedResult.value:props.result
@@ -35,7 +27,7 @@ function share(){
   if(copyText(message.value)){
     copyStatus.value=config.value.teamsUrl?'복사했습니다. Teams에서 Ctrl+V로 붙여넣고 전송하세요.':'복사했습니다. Teams 채팅방에 Ctrl+V로 붙여넣으세요.'
     selectMessage()
-    if(config.value.teamsUrl)window.open(config.value.teamsUrl,'_blank','noopener,noreferrer')
+    openTeams(config.value)
   }else{copyStatus.value='아래 문구가 선택되면 Ctrl+C로 복사한 뒤 Teams에서 Ctrl+V로 붙여넣으세요.';selectMessage()}
 }
 function recopy(){

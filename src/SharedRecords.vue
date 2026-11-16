@@ -4,6 +4,8 @@ import ResultShare from './ResultShare.vue'
 import { shouldSendChat } from './services/chatInput.js'
 
 const props = defineProps({
+  chatOnly: Boolean,
+  rankedPeople: { type: Array, default: null },
   currentRoom: { type: String, required: true },
   state: { type: Object, required: true },
   timeline: { type: Object, required: true },
@@ -65,8 +67,8 @@ const formatTime = at => new Date(at).toLocaleString('ko-KR', {
 </script>
 
 <template>
-  <div class="records-stack">
-    <section class="records-section history-section" aria-labelledby="shared-history-heading">
+  <div class="records-stack" :class="{'chat-only':chatOnly}">
+    <section v-if="!chatOnly" class="records-section history-section" aria-labelledby="shared-history-heading">
       <header class="records-heading">
         <div><span class="section-icon" aria-hidden="true">▤</span><h2 id="shared-history-heading">{{ roomName }} 기록</h2><span class="record-count" :title="timeline.meta.history.hasMore ? '현재 불러온 이 방의 기록 수' : '이 방의 전체 기록 수'">{{ roomHistory.length }}</span></div>
         <span class="section-caption">{{ roomName }}방의 선택</span>
@@ -87,9 +89,9 @@ const formatTime = at => new Date(at).toLocaleString('ko-KR', {
     <section class="records-section chat-section" aria-labelledby="shared-chat-heading">
       <header class="records-heading">
         <div><span class="section-icon" aria-hidden="true">💬</span><h2 id="shared-chat-heading">자유 대화방</h2></div>
-        <span class="chat-presence"><i :class="{ online: connected }"></i>{{ connected ? `${state.people.length}명 접속 중` : '연결 중…' }}</span>
+        <span class="chat-presence"><i :class="{ online: connected }"></i>{{ connected ? `${(rankedPeople||state.people).length}명 접속 중` : '연결 중…' }}</span>
       </header>
-      <div class="record-people" aria-label="접속자"><span v-for="p in state.people" :key="p.id" :title="p.name">{{ p.emoji }} <small>{{ p.name }}{{ p.id === selfId ? ' (나)' : '' }}</small></span></div>
+      <div class="record-people" :class="{ranked:!!rankedPeople}" aria-label="접속자 및 입장 순위"><span v-for="p in rankedPeople||state.people" :key="p.id" :title="p.rank?'입장 '+p.entryNumber+'번째 · 나중 입장한 사람의 장식을 지울 수 있어요':p.name"><b v-if="p.rank" class="person-rank">{{p.rank.icon}} {{p.rank.label}}</b><i v-if="p.entryNumber" class="person-entry">{{p.entryNumber}}번째</i>{{ p.emoji }} <small>{{ p.name }}{{ p.id === selfId ? ' (나)' : '' }}</small></span></div>
       <div ref="chatBox" class="record-scroll chat-scroll" @scroll="timeline.scroll('chat')">
         <div v-if="timeline.meta.chat.loading" class="timeline-load">이전 대화를 불러오는 중…</div>
         <button v-else-if="timeline.meta.chat.error" class="timeline-retry" @click="timeline.retry('chat')">{{ timeline.meta.chat.error }} 다시 시도</button>

@@ -1,7 +1,7 @@
 ﻿import { onMounted, onBeforeUnmount } from 'vue'
 import { normalizedCursor } from '../../shared/presence.mjs'
 
-export function usePresenceCursor({ connected, state, selfId, send, sync }) {
+export function usePresenceCursor({ connected, state, selfId, send, sync, enabled = () => true }) {
   let lastMove = 0
 
   function leave() {
@@ -10,7 +10,7 @@ export function usePresenceCursor({ connected, state, selfId, send, sync }) {
     if (connected.value) send('cursor', { visible: false })
   }
   function move(event) {
-    if (!connected.value || Date.now() - lastMove < 50) return
+    if (!enabled() || !connected.value || Date.now() - lastMove < 50) return
     lastMove = Date.now()
     const cursor = normalizedCursor(event.clientX, event.clientY, innerWidth, innerHeight)
     if (!cursor) { leave(); return }

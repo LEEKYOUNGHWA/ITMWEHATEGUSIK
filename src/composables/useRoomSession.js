@@ -35,6 +35,7 @@ export function createRoomSession({
     timeline.latest('history')
   })
   let catalogRequestId = null
+  const spaceListeners = new Set()
 
   function absorb(message) {
     if (message.restaurants) state.restaurants = message.restaurants.map(r => ({ ...r, room: r.room || 'lunch' }))
@@ -68,6 +69,7 @@ export function createRoomSession({
   }
 
   function receive(message) {
+    if(message.type?.startsWith('christmas-')) { for(const listener of spaceListeners) listener(message); return }
     const room = message.room || 'lunch'
     switch (message.type) {
       case 'preferences':
@@ -162,6 +164,7 @@ export function createRoomSession({
     canSend: () => connected.value,
     onMessage: receive,
     onDisconnect: () => {
+      for(const listener of spaceListeners) listener({type:'christmas-disconnected'})
       connected.value = false
       state.people = []
       saving.value = false
@@ -226,6 +229,7 @@ export function createRoomSession({
   return {
     state, profile, connected, initialized, selfId, serverOffset, saving, ready, roomState, timeline,
     updateOptions, selectRestaurant, spin, chat, changeChat, saveCatalog, reloadSource, profileSaved, sync,
+    subscribeSpace: listener => { spaceListeners.add(listener); return () => spaceListeners.delete(listener) },
     send: connection.send, start: connection.start, stop
   }
 }
