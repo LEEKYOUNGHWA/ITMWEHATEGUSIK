@@ -1,0 +1,14 @@
+
+.spin-button { --button-lift: 14px; }
+.naver-search-link {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 4px 2px;
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.5;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.naver-search-link:hover { color: var(--acc); }
+.naver-search-link:focus-visible { outline: 2px solid var(--acc); outline-offset: 3px; }

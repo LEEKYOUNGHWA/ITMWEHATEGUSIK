@@ -114,7 +114,7 @@ test('개발 서버가 Vue·CSS 모듈을 올바른 형식으로 제공하고 �
     const base='http://127.0.0.1:'+app.port
     const html=await fetch(base+'/');assert.equal(html.status,200);assert.match(await html.text(),/@vite\/client/)
     for(const route of ['/src/main.js','/src/App.vue','/src/Wheel.vue','/src/BackgroundMap.vue']){const r=await fetch(base+route);assert.equal(r.status,200);assert.match(r.headers.get('content-type'),/javascript/)}
-    const css=await fetch(base+'/src/style.css?direct',{headers:{Accept:'text/css'}});assert.equal(css.status,200);assert.match(css.headers.get('content-type'),/text\/css/);assert.match(await css.text(),/wheel-card/)
+    const css=await fetch(base+'/src/assets/styles/themes/retro/base.css?direct',{headers:{Accept:'text/css'}});assert.equal(css.status,200);assert.match(css.headers.get('content-type'),/text\/css/);assert.match(await css.text(),/wheel-card/)
     for(const route of ['/data/history.jsonl','/config/restaurants.json','/@fs/'+root.replaceAll('\\','/')+'/config/restaurants.json']){const r=await fetch(base+route);assert.ok([403,404].includes(r.status),route)}
   }finally{await app.stop()}
 }))

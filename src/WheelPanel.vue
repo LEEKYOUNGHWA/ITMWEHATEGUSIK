@@ -13,6 +13,7 @@ const roomIcon = computed(() => props.currentRoom === 'coffee' ? '☕' : '🍚')
 const roomRestaurants = computed(() => props.restaurants.filter(r => r.room === props.currentRoom))
 const wheelRestaurants = computed(() => props.roomState.spin?.restaurants || props.roomState.completedWheel?.restaurants || props.roomState.previewRestaurants || roomRestaurants.value)
 const result = computed(() => props.roomState.lastResult?.restaurant)
+const naverSearchUrl = computed(() => `https://search.naver.com/search.naver?query=${encodeURIComponent(result.value?.name || '')}`)
 const posterAppearance = computed(() => getResultAppearance(result.value, props.currentRoom, !!props.roomState.spin))
 const wheelSlot = ref(null), wheelSize = ref(260)
 let wheelObserver
@@ -46,6 +47,7 @@ onBeforeUnmount(() => wheelObserver?.disconnect())
           <template v-if="roomState.spin"><span class="result-label">두구두구…</span><b>함께 갈 곳을 고르고 있어요</b><small>{{roomTitle}} 모두 같은 결과를 기다리는 중!</small></template>
           <template v-else-if="result"><span class="result-label">{{classicStyle?(currentRoom==='coffee'?'🎉 오늘의 커피는':'🎉 오늘의 점심은'):(currentRoom==='coffee'?'★ 오늘의 커피 최종 승인 ★':'★ 오늘의 점심 최종 승인 ★')}}</span><b :title="result.name">{{result.name}} <em>{{result.category}}</em></b><small :title="result.description">{{result.description}}</small><small :title="result.hours">{{result.hours}}</small><span v-if="result.lat==null" class="coordinate-hint">아직 위치가 등록되지 않았어요</span></template>
           <template v-else><span class="result-label">다 같이 고르는 {{roomTitle}}</span><b>{{roomRestaurants.length?'돌림판을 돌려보세요 🎡':'첫 후보를 등록해 주세요'}}</b><small>가게 정보 수정에서 후보를 추가할 수 있어요</small></template>
+          <a v-if="result && !roomState.spin" class="naver-search-link" :href="naverSearchUrl" target="_blank" rel="noopener noreferrer">네이버 검색 결과보기 ↗</a>
           </div>
           <img class="poster-food" :src="foodArtwork[posterAppearance.key]" :data-food-theme="posterAppearance.key" alt="" aria-hidden="true" width="2172" height="724" decoding="async">
         </div>
@@ -61,3 +63,5 @@ onBeforeUnmount(() => wheelObserver?.disconnect())
         </section>
       </section>
 </template>
+
+<style scoped src="./assets/styles/components/wheel-panel.css"></style>

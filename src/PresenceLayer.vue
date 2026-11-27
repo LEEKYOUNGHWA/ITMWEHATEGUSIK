@@ -22,16 +22,4 @@ defineProps({
   </Teleport>
 </template>
 
-<style scoped>
-.presence-cursor-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483647;
-  overflow: visible;
-  pointer-events: none;
-  isolation: isolate;
-}
-.presence-cursor-overlay :deep(*) {
-  pointer-events: none;
-}
-</style>
+<style scoped src="./assets/styles/components/presence-layer.css"></style>
