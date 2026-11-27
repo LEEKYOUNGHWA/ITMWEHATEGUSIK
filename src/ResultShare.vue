@@ -76,16 +76,4 @@ function recopy(){
   </Teleport>
 </template>
 
-<style scoped>
-.share-icons{display:inline-flex;align-items:center;justify-content:center;gap:3px;line-height:1}.share-icons svg{flex-shrink:0}
-.result-sharing{margin:0}.result-sharing small{display:block;margin-top:8px;color:var(--mut)}
-.shared-result-page{min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--soft)}
-.shared-result-card{width:min(100%,620px);padding:32px;border-radius:20px;overflow-wrap:anywhere}
-.shared-result-card p{line-height:1.7}.shared-result-card small,.share-dialog small{color:var(--mut);line-height:1.7}
-.share-overlay{position:fixed;inset:0;z-index:3000;background:#0006;display:grid;place-items:center;padding:18px;pointer-events:auto}
-.share-dialog{width:min(100%,600px);max-height:90dvh;overflow:auto;padding:24px;border-radius:18px;color:var(--fg);text-align:left}
-.share-dialog h2{font-size:18px;margin:0 0 12px}.share-dialog p{font-size:13px;line-height:1.7}.share-dialog label{font-size:12px}
-.share-dialog textarea{display:block;width:100%;height:250px;margin-top:8px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--soft);color:var(--fg);font:13px/1.7 inherit;resize:vertical}
-.share-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:18px 0}
-.share-actions button,.share-actions a{font-size:12px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--soft);color:var(--fg);text-decoration:none}
-</style>
+<style scoped src="./assets/styles/components/result-share.css"></style>

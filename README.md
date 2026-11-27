@@ -212,7 +212,7 @@ npm run auto:stop     # 검사와 자동 서버 중지 요청
 
 - `src/App.vue`: 화면, 접속 상태, 커서·채팅
 - `src/SharedRecords.vue`: 공용 기록·자유 대화방의 세로 분할 패널. 조회·스크롤은 기존 `useTimeline`을 공유하고, 두 목록의 DOM 참조를 App에 제공합니다.
-- `src/workspace.css`: 2000년대 사내 전산실 스타일(파란 제목줄·은색 입체 버튼·금색 룰렛·빨간 실행 버튼). 현재 화면 배치·후보 화살표는 `style.css`, 관리 화면 구조는 `account.css`를 유지하고 시각 디자인은 이 파일에서 조정합니다. 룰렛의 원색 조각·금테·전구는 `Wheel.vue`의 Canvas 그리기에서 관리하며 추첨 각도 계산과 분리합니다.
+- `src/assets/styles/themes/retro/workspace.css`: 2000년대 사내 전산실 스타일(파란 제목줄·은색 입체 버튼·금색 룰렛·빨간 실행 버튼). 현재 화면 배치·후보 화살표는 `style.css`, 관리 화면 구조는 `account.css`를 유지하고 시각 디자인은 이 파일에서 조정합니다. 룰렛의 원색 조각·금테·전구는 `Wheel.vue`의 Canvas 그리기에서 관리하며 추첨 각도 계산과 분리합니다.
 - `src/assets/`: 업종별 결과 배너 장식. 한식·중식·일식·양식·분식·커피를 표시하며 미분류·혼합 업종과 점심 추첨 중에는 공통 마스코트를 사용합니다. 실제 식당 사진이 아닙니다. `shared/food-appearance.mjs`의 같은 기준을 룰렛 아이콘에도 사용합니다. 생성 방식과 프롬프트는 `src/assets/README.md`에 기록합니다.
 - `public/fonts/`: 제목·버튼·룰렛에 사용하는 주아체와 OFL 라이선스. 실행 중 외부 폰트 서버에 의존하지 않습니다. 본문과 장식 글꼴은 `workspace.css`의 `--ui-font`·`--display-font`로 구분합니다.
 - `src/Wheel.vue`: 각 방의 Canvas 돌림판
@@ -277,19 +277,19 @@ npm run build
 
 | 수정할 내용 | 파일 |
 | --- | --- |
-| 글꼴·색상·패널 너비·화면 크기별 주요 글자 크기·지도 버튼 간격 | `src/styles/tokens.css` |
-| 돌림판·지도·기록 패널의 레트로 디자인과 반응형 배치 | `src/workspace.css` |
-| 기본 요소·공통 화면 | `src/style.css` |
-| 사용자 정보·가게 관리·환경설정 화면 | `src/account.css` |
+| 글꼴·색상·패널 너비·화면 크기별 주요 글자 크기·지도 버튼 간격 | `src/assets/styles/themes/retro/tokens.css` |
+| 돌림판·지도·기록 패널의 레트로 디자인과 반응형 배치 | `src/assets/styles/themes/retro/workspace.css` |
+| 기본 요소·공통 화면 | `src/assets/styles/themes/retro/base.css` |
+| 사용자 정보·가게 관리·환경설정 화면 | `src/assets/styles/themes/retro/account.css` |
 | 상단 제목·프로필·방 선택·테마 토글 | `src/WorkspaceHeader.vue` |
-| 두 테마의 공통 헤더 배치·토글 스타일·장식 배경과 컨트롤의 겹침 순서 | `src/styles/header-layout.css` |
+| 두 테마의 공통 헤더 배치·토글 스타일·장식 배경과 컨트롤의 겹침 순서 | `src/assets/styles/common/header-layout.css` |
 | 테마 목록·기본값 / 사용자 테마 조회·저장·동기화 | `shared/themes.mjs` / `src/composables/useTheme.js` |
 | 돌림판·당첨 내용·후보 설정 | `src/WheelPanel.vue` |
 | 반경 슬라이더 / 공용 기록·대화방 | `src/RadiusControl.vue` / `src/SharedRecords.vue` |
 
 `App.vue`는 화면 구성과 모듈 연결을 맡습니다. `src/composables/useRoomSession.js`는 서버 메시지에 따른 공유 상태·추첨·채팅·저장 처리를, `src/services/roomConnection.js`는 WebSocket 연결·재접속·시계 동기화를 담당합니다. 패널 표시와 로컬 설정은 `useWorkspaceLayout`, 지도 조회와 요청 취소는 `useMapPlaces`, 참여자 커서는 `usePresenceCursor`에서 관리합니다. 새 코드를 추가할 때 화면 컴포넌트에서 별도 WebSocket을 열지 않고 기존 세션을 사용하세요.
 
-스타일은 `src/main.js`에서 공통 기본(`themes/base.css`) → 레트로 기본·관리·작업 화면(`style.css`, `account.css`, `workspace.css`) → 디자인 설정(`styles/tokens.css`) → 클래식(`themes/classic/classic.css`, `current-controls.css`) → 공통 헤더(`styles/header-layout.css`) 순서로 불러옵니다. 테마 전용 CSS는 `@scope`로 적용 범위를 나눕니다. 글꼴이나 주요 크기는 `tokens.css`의 기존 값을 수정하고 같은 선택자를 파일 끝에 계속 덧붙이지 않습니다. 커피·한식·중식 등 장식 분류는 `shared/food-appearance.mjs`, 이미지 연결은 `src/foodArtwork.js`에서 함께 관리합니다.
+전역 스타일은 `src/main.js`에서 `src/assets/styles/index.css` 하나로 불러옵니다. 이 진입점이 공통 기본 → 레트로 기본·관리·작업 화면 → 레트로 디자인 설정 → 클래식 → 공통 헤더 순서를 유지합니다. 전체 CSS는 `src/assets/styles/`의 `common/`, `themes/`, `components/`, `pages/`에서 관리합니다. 컴포넌트는 외부 CSS를 `<style scoped src="…">`로 연결해 스타일 격리를 유지하고, 트리방 CSS는 페이지와 함께 지연 로딩합니다. 테마 전용 CSS는 기존 `@scope`를 유지합니다. 글꼴이나 주요 크기는 테마의 `tokens.css`를 수정하고 같은 선택자를 파일 끝에 계속 덧붙이지 않습니다. 커피·한식·중식 등 장식 분류는 `shared/food-appearance.mjs`, 이미지 연결은 `src/foodArtwork.js`에서 함께 관리합니다.
 
 레트로 헤더의 `::before`는 파란 장식 배경입니다. 제목·방 선택·사용자 컨트롤은 공통 헤더 CSS의 `position: relative; z-index: 1`로 배경 앞에 표시합니다. 이를 제거하면 방 버튼이 클릭되지만 보이지 않는 문제가 재발할 수 있습니다.
 
@@ -326,7 +326,7 @@ Teams 메시지의 링크 복사 주소를 teamsUrl에 사용할 수 있습니�
 
 - 우측 상단 이모지·이름 왼쪽의 **클래식 / 레트로 토글**을 클릭하면 두 테마를 전환한다. 환경설정에서도 선택할 수 있다. 기본 테마는 클래식이다. 삭제된 대화형·워크시트 설정으로 접속하면 클래식으로 표시한다.
 - 토글은 현재 선택을 표시하며 키보드로도 조작할 수 있다. 연결이 끊겼거나 저장 중이면 비활성화하고, 저장 실패 시 알림을 표시한다. 기존 `selectTheme` 저장 경로를 사용한다.
-- 모든 테마가 동일한 `App.vue`와 세션·지도·돌림판·후보 설정·접기 버튼·공유·사용자 설정을 사용한다. 기능은 테마별로 분기하지 않는다. 클래식은 3000번의 원본 CSS와 돌림판 그리기를 사용하며, 레트로는 기존 스타일 파일을 사용하며 두 테마의 CSS 적용 범위를 각각 분리한다. 공통 헤더 배치는 `src/styles/header-layout.css`에서 관리한다.
+- 모든 테마가 동일한 `App.vue`와 세션·지도·돌림판·후보 설정·접기 버튼·공유·사용자 설정을 사용한다. 기능은 테마별로 분기하지 않는다. 클래식은 3000번의 원본 CSS와 돌림판 그리기를 사용하며, 레트로는 기존 스타일 파일을 사용하며 두 테마의 CSS 적용 범위를 각각 분리한다. 공통 헤더 배치는 `src/assets/styles/common/header-layout.css`에서 관리한다.
 - 커피방은 커피 당첨기록만, 점심방은 점심 당첨기록만 표시한다. 대화는 기존처럼 공용이다. 모든 테마에서 같은 `SharedRecords.vue`를 사용한다.
 - 당첨기록마다 오른쪽 위의 `Teams 공유` 버튼으로 해당 기록의 가게와 고유 결과 링크를 공유한다. 최신 추첨이 바뀌어도 이전 기록을 개별 공유할 수 있다. 여러 버튼은 페이지당 공유 설정 요청 하나를 재사용한다.
 - 이전 운영 릴리스 `044831486164-20261105`의 원본 App·CSS·돌림판·지도·사용자 메뉴는 `src/themes/classic`에 보존하며 클래식의 CSS·돌림판 렌더링에 사용한다. 별도로 만들었던 테마별 화면 시안은 `.deploy/backups/theme-prototypes-*`에 보관하며 실제 화면에서는 사용하지 않는다.

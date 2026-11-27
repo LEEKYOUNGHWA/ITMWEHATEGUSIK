@@ -94,6 +94,4 @@ onBeforeUnmount(() => {
 
 <template><canvas ref="canvas" class="money-rain" aria-hidden="true"></canvas></template>
 
-<style scoped>
-.money-rain{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}
-</style>
+<style scoped src="./assets/styles/components/money-rain.css"></style>

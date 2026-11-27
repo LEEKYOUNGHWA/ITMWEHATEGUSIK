@@ -169,4 +169,4 @@ async function copyImage(){try{await navigator.clipboard.write([new ClipboardIte
   </section>
 </template>
 
-<style src="./christmas/christmas.css"></style>
+<style src="./assets/styles/pages/christmas.css"></style>
